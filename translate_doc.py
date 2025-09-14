@@ -27,13 +27,13 @@ class DocumentTranslator:
     - Configurable number of parallel workers
     """
     
-    def __init__(self, api_key: str, model: str = "gpt-5-mini", max_workers: int = 16):
+    def __init__(self, api_key: str, model: str = "gpt-4.1-mini", max_workers: int = 16):
         """
         Initialize the translator with OpenAI API credentials.
 
         Args:
             api_key: OpenAI API key
-            model: OpenAI model to use for translation (default: gpt-5-mini)
+            model: OpenAI model to use for translation (default: gpt-4.1-mini)
             max_workers: Maximum number of parallel workers for processing (default: 16
         """
         self.client = OpenAI(api_key=api_key)

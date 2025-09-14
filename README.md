@@ -154,7 +154,7 @@ doctrans translate README.md -l French -o LISEZ-MOI.md
 
 - `-l, --language`: Target language (required)
 - `-o, --output`: Custom output file path
-- `--model`: GPT model to use (default: gpt-4o-mini)
+- `--model`: GPT model to use (default: gpt-4.1-mini)
 - `--preserve-formatting`: Maintain original formatting
 
 ### Batch Command Options

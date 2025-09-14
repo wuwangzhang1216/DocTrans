@@ -424,7 +424,7 @@ class TranslatorCLI:
             if self.config.has_option('defaults', 'model'):
                 print(f"  Default Model: {Colors.CYAN}{self.config.get('defaults', 'model')}{Colors.ENDC}")
             else:
-                print(f"  Default Model: {Colors.CYAN}gpt-4o-mini{Colors.ENDC} (default)")
+                print(f"  Default Model: {Colors.CYAN}gpt-4.1-mini{Colors.ENDC} (default)")
             
             if self.config.has_option('defaults', 'workers'):
                 print(f"  Default Workers: {Colors.CYAN}{self.config.get('defaults', 'workers')}{Colors.ENDC}")
@@ -470,8 +470,8 @@ Examples:
                                      help='Target language (e.g., Chinese, zh)')
         translate_parser.add_argument('-o', '--output',
                                      help='Output file path (optional)')
-        translate_parser.add_argument('-m', '--model', default='gpt-4o-mini',
-                                     help='OpenAI model to use (default: gpt-4o-mini)')
+        translate_parser.add_argument('-m', '--model', default='gpt-4.1-mini',
+                                     help='OpenAI model to use (default: gpt-4.1-mini)')
         translate_parser.add_argument('-w', '--workers', type=int, default=16,
                                      help='Max parallel workers (default: 16)')
         
@@ -484,8 +484,8 @@ Examples:
                                  help='Target language (e.g., Chinese, zh)')
         batch_parser.add_argument('-t', '--types',
                                  help='File types to process (comma-separated, e.g., "pptx,docx")')
-        batch_parser.add_argument('-m', '--model', default='gpt-4o-mini',
-                                 help='OpenAI model to use (default: gpt-4o-mini)')
+        batch_parser.add_argument('-m', '--model', default='gpt-4.1-mini',
+                                 help='OpenAI model to use (default: gpt-4.1-mini)')
         batch_parser.add_argument('-w', '--workers', type=int, default=16,
                                  help='Max parallel workers per file (default: 16)')
         
