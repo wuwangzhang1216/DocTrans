@@ -272,7 +272,7 @@ MIT License - See LICENSE file for details
 ## Support
 
 For issues, questions, or contributions:
-- GitHub Issues: [Report a bug](https://github.com/yourusername/translate-doc/issues)
+- GitHub Issues: [Report a bug](https://github.com/wuwangzhang1216/translate-doc/issues)
 - Documentation: [This README](README.md)
 
 ## Credits
