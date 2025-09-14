@@ -1,0 +1,15 @@
+# Core OpenAI API (latest version as of September 2025)
+openai>=1.107.2
+
+# Document processing libraries
+python-pptx>=0.6.21      # PowerPoint file handling
+python-docx>=1.0.0       # Word document handling
+PyPDF2>=3.0.0           # PDF reading
+pdfplumber>=0.10.0      # Enhanced PDF text extraction
+
+# Optional but recommended dependencies
+chardet>=5.0.0          # Character encoding detection
+Pillow>=10.0.0          # Image processing (for documents with images)
+
+# Development dependencies (optional)
+python-dotenv>=1.0.0    # For managing API keys in .env files
