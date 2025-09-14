@@ -17,7 +17,7 @@ A powerful command-line tool for translating documents using OpenAI's API. Suppo
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/translate-doc.git
+git clone [https://github.com/yourusername/translate-doc.git](https://github.com/wuwangzhang1216/translate-doc)
 cd translate-doc
 ```
 
