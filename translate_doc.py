@@ -791,7 +791,7 @@ class DocumentTranslator:
 # Example usage
 if __name__ == "__main__":
     # Initialize translator with your OpenAI API key
-    API_KEY = "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"  # Replace with your actual API key
+    API_KEY = "you_api_key"  # Replace with your actual API key
     
     # Initialize translator with parallel processing (max_workers=32 for faster processing)
     translator = DocumentTranslator(api_key=API_KEY, max_workers=32)
