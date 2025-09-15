@@ -6,6 +6,7 @@ python-pptx>=0.6.21      # PowerPoint file handling
 python-docx>=1.0.0       # Word document handling
 PyPDF2>=3.0.0           # PDF reading
 pdfplumber>=0.10.0      # Enhanced PDF text extraction
+reportlab>=4.0.0        # PDF creation for translated documents
 
 # Optional but recommended dependencies
 chardet>=5.0.0          # Character encoding detection
@@ -13,3 +14,6 @@ Pillow>=10.0.0          # Image processing (for documents with images)
 
 # Development dependencies (optional)
 python-dotenv>=1.0.0    # For managing API keys in .env files
+
+# Professional CLI interface
+rich>=13.7.0            # Beautiful terminal formatting and progress bars

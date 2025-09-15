@@ -27,8 +27,10 @@ chmod +x install.sh
 ./install.sh
 ```
 
-This will:
-- Build the standalone executable (if not already built)
+This will automatically:
+- Check for and remove conflicting packages (like obsolete pathlib)
+- Install all Python dependencies
+- Build the standalone executable with PyInstaller
 - Install the `doctrans` command to `~/.local/bin`
 - Add the directory to your PATH (if needed)
 - Make the command available system-wide
@@ -38,19 +40,25 @@ This will:
 source ~/.bash_profile  # or ~/.zshrc for zsh users
 ```
 
-### Manual Build
+### Installation Options
 
-If you prefer to build manually:
+The install script supports several options:
 
 ```bash
-# Make the build script executable
-chmod +x build/build_macos.sh
+# Force rebuild the executable even if it exists
+./install.sh --build
+./install.sh -b
 
-# Build the executable
-./build/build_macos.sh
+# Skip build and only install existing executable
+./install.sh --skip-build
+./install.sh -s
 
-# The executable will be at: dist/DocTranslator
+# Show help and available options
+./install.sh --help
+./install.sh -h
 ```
+
+**Note**: The installer automatically handles common conflicts like the obsolete `pathlib` package that can interfere with PyInstaller builds.
 
 ### System Requirements
 
@@ -210,17 +218,67 @@ chmod +x ~/.local/bin/doctrans
 
 ## Uninstallation
 
-To remove DocTrans CLI:
+### Complete Uninstallation
+
+To completely remove DocTrans CLI and all associated files:
 
 ```bash
 chmod +x uninstall.sh
-./uninstall.sh
+./uninstall.sh --clean-all
 ```
 
-Or manually:
+This will remove:
+- The `doctrans` command from `~/.local/bin/`
+- All build artifacts (`build/` and `dist/` directories)
+- PyInstaller spec files
+- Python cache directories (`__pycache__`)
+- PATH modifications from shell config files (with backups)
+
+### Uninstallation Options
+
+The uninstall script supports several options:
+
 ```bash
+# Basic uninstall (removes only the doctrans command)
+./uninstall.sh
+
+# Remove PATH modifications from shell configs
+./uninstall.sh --clean-path
+
+# Complete cleanup - removes everything
+./uninstall.sh --clean-all
+./uninstall.sh -a
+
+# Show help and available options
+./uninstall.sh --help
+./uninstall.sh -h
+```
+
+### What Gets Removed
+
+| Option | doctrans command | build/dist folders | PATH configs | Python caches |
+|--------|-----------------|-------------------|--------------|---------------|
+| Basic | ✓ | ✗ | ✗ | ✗ |
+| --clean-path | ✓ | ✗ | ✓ | ✗ |
+| --clean-all | ✓ | ✓ | ✓ | ✓ |
+
+**Note**: When removing PATH modifications, the script creates timestamped backups of your shell config files before making changes.
+
+### Manual Uninstallation
+
+If you prefer to uninstall manually:
+```bash
+# Remove the CLI command
 rm ~/.local/bin/doctrans
-rm -rf ~/.doctranslator  # Config directory
+
+# Remove config directory
+rm -rf ~/.doctranslator
+
+# Remove build artifacts
+rm -rf build/ dist/ DocTranslator.spec
+
+# Remove PATH modification from shell config
+# Edit ~/.bash_profile, ~/.zshrc, or ~/.bashrc and remove the DocTranslator section
 ```
 
 ## Development
@@ -230,6 +288,7 @@ rm -rf ~/.doctranslator  # Config directory
 Requirements:
 - Python 3.10-3.12
 - pip
+- No conflicting packages (installer handles this automatically)
 
 ```bash
 # Install dependencies
@@ -238,10 +297,42 @@ pip install -r requirements.txt
 # Run from source
 python app.py languages
 
-# Build executable
+# Build executable manually
 pip install pyinstaller
-./build/build_macos.sh
+pyinstaller --onefile \
+    --name DocTranslator \
+    --add-data "translate_doc.py:." \
+    --hidden-import openai \
+    --hidden-import tiktoken \
+    --hidden-import pymupdf \
+    --hidden-import docx \
+    --hidden-import openpyxl \
+    --hidden-import pptx \
+    --hidden-import markdown \
+    --hidden-import bs4 \
+    --hidden-import aiohttp \
+    --hidden-import certifi \
+    --clean \
+    --noconfirm \
+    app.py
 ```
+
+### Build Scripts
+
+The project includes automated build and installation scripts:
+
+#### install.sh
+Handles the complete build and installation process:
+- Detects and removes conflicting packages
+- Builds the standalone executable
+- Installs to `~/.local/bin`
+- Configures PATH if needed
+
+#### uninstall.sh
+Provides flexible uninstallation options:
+- Basic: Removes just the CLI command
+- `--clean-path`: Also removes PATH modifications
+- `--clean-all`: Complete removal including build artifacts
 
 ### Project Structure
 
@@ -250,13 +341,20 @@ translate-doc/
 ├── app.py                 # Main CLI entry point
 ├── translate_doc.py       # Core translation logic
 ├── requirements.txt       # Python dependencies
-├── build/
-│   └── build_macos.sh    # macOS build script
-├── dist/
-│   └── DocTranslator     # Built executable
-├── install.sh            # Installation script
-└── uninstall.sh          # Uninstallation script
+├── install.sh            # Automated installation script
+├── uninstall.sh          # Flexible uninstallation script
+├── build/                # Build artifacts (generated)
+│   └── DocTranslator/    # PyInstaller build files
+├── dist/                 # Distribution directory (generated)
+│   └── DocTranslator     # Standalone executable
+└── DocTranslator.spec    # PyInstaller spec (generated)
 ```
+
+### Common Build Issues
+
+1. **pathlib conflict**: The installer automatically removes the obsolete pathlib package
+2. **Permission denied**: Run `chmod +x install.sh` before installation
+3. **Build fails**: Ensure you have Python 3.10-3.12 and all requirements installed
 
 ## Privacy & Security
 

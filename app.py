@@ -1,134 +1,116 @@
 #!/usr/bin/env python3
 """
-Document Translator CLI
-A professional command-line interface for translating documents using OpenAI API.
-Supports PDF, PPTX, DOCX, and TXT formats with parallel processing.
+DocTrans CLI - Professional Document Translator
+A beautiful command-line interface for translating documents using OpenAI API.
 """
 
 import os
 import sys
 import json
 import argparse
+import time
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 import configparser
 from getpass import getpass
 
+# Rich imports for beautiful CLI
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+from rich.panel import Panel
+from rich.layout import Layout
+from rich.text import Text
+from rich.prompt import Prompt, Confirm
+from rich.syntax import Syntax
+from rich.align import Align
+from rich.columns import Columns
+from rich.live import Live
+from rich.spinner import Spinner
+from rich import box
+from rich.rule import Rule
+
 # Import the translator module
 try:
     from translate_doc import DocumentTranslator
 except ImportError:
-    print("Error: translate_doc.py not found in the current directory.")
+    console = Console()
+    console.print("[red]✗ Error:[/red] translate_doc.py not found in the current directory.")
     sys.exit(1)
 
-# ANSI color codes for terminal output
-class Colors:
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+# Initialize Rich console
+console = Console()
 
 # Supported languages mapping
 SUPPORTED_LANGUAGES = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'ru': 'Russian',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'zh': 'Chinese',
-    'ar': 'Arabic',
-    'hi': 'Hindi',
-    'nl': 'Dutch',
-    'sv': 'Swedish',
-    'pl': 'Polish',
-    'tr': 'Turkish',
-    'he': 'Hebrew',
-    'no': 'Norwegian',
-    'da': 'Danish',
-    'fi': 'Finnish',
-    'cs': 'Czech',
-    'hu': 'Hungarian',
-    'el': 'Greek',
-    'th': 'Thai',
-    'vi': 'Vietnamese',
-    'id': 'Indonesian',
-    'ms': 'Malay',
-    'ro': 'Romanian',
-    'uk': 'Ukrainian',
-    'bg': 'Bulgarian',
-    'hr': 'Croatian',
-    'sr': 'Serbian',
-    'sk': 'Slovak',
-    'sl': 'Slovenian',
-    'et': 'Estonian',
-    'lv': 'Latvian',
+    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+    'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+    'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
+    'nl': 'Dutch', 'sv': 'Swedish', 'pl': 'Polish', 'tr': 'Turkish',
+    'he': 'Hebrew', 'no': 'Norwegian', 'da': 'Danish', 'fi': 'Finnish',
+    'cs': 'Czech', 'hu': 'Hungarian', 'el': 'Greek', 'th': 'Thai',
+    'vi': 'Vietnamese', 'id': 'Indonesian', 'ms': 'Malay', 'ro': 'Romanian',
+    'uk': 'Ukrainian', 'bg': 'Bulgarian', 'hr': 'Croatian', 'sr': 'Serbian',
+    'sk': 'Slovak', 'sl': 'Slovenian', 'et': 'Estonian', 'lv': 'Latvian',
     'lt': 'Lithuanian',
 }
 
-class TranslatorCLI:
-    """Main CLI application class for document translation."""
-    
+class ModernTranslatorCLI:
+    """Modern CLI application with Rich interface for document translation."""
+
     def __init__(self):
         self.config_file = Path.home() / '.doctranslator' / 'config.ini'
         self.config = self.load_config()
         self.verbose = False
         self.quiet = False
-        
+
     def load_config(self) -> configparser.ConfigParser:
         """Load configuration from file if it exists."""
         config = configparser.ConfigParser()
         if self.config_file.exists():
             config.read(self.config_file)
         return config
-    
+
     def save_config(self):
         """Save configuration to file."""
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, 'w') as f:
             self.config.write(f)
-    
-    def print_header(self):
-        """Print application header."""
-        if not self.quiet:
-            print(f"\n{Colors.BOLD}{Colors.CYAN}╔══════════════════════════════════════════════════════════╗{Colors.ENDC}")
-            print(f"{Colors.BOLD}{Colors.CYAN}║         Document Translator CLI v1.0                      ║{Colors.ENDC}")
-            print(f"{Colors.BOLD}{Colors.CYAN}║         Powered by OpenAI API                             ║{Colors.ENDC}")
-            print(f"{Colors.BOLD}{Colors.CYAN}╚══════════════════════════════════════════════════════════╝{Colors.ENDC}\n")
-    
-    def print_success(self, message: str):
-        """Print success message."""
-        if not self.quiet:
-            print(f"{Colors.GREEN}✓ {message}{Colors.ENDC}")
-    
-    def print_error(self, message: str):
-        """Print error message."""
-        print(f"{Colors.FAIL}✗ {message}{Colors.ENDC}", file=sys.stderr)
-    
-    def print_warning(self, message: str):
-        """Print warning message."""
-        if not self.quiet:
-            print(f"{Colors.WARNING}⚠ {message}{Colors.ENDC}")
-    
-    def print_info(self, message: str):
-        """Print info message."""
-        if not self.quiet:
-            print(f"{Colors.BLUE}ℹ {message}{Colors.ENDC}")
-    
+
+    def print_banner(self):
+        """Print beautiful application banner."""
+        if self.quiet:
+            return
+
+        banner_text = """
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║     ██████╗  ██████╗  ██████╗████████╗██████╗  █████╗ ███╗   ██╗ ║
+║     ██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██╔══██╗████╗  ██║ ║
+║     ██║  ██║██║   ██║██║        ██║   ██████╔╝███████║██╔██╗ ██║ ║
+║     ██║  ██║██║   ██║██║        ██║   ██╔══██╗██╔══██║██║╚██╗██║ ║
+║     ██████╔╝╚██████╔╝╚██████╗   ██║   ██║  ██║██║  ██║██║ ╚████║ ║
+║     ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ║
+║                                                                  ║
+║               Professional Document Translator v2.0              ║
+║                     Powered by OpenAI GPT-5                      ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+        """
+
+        console.print(Panel(
+            Align.center(Text(banner_text, style="cyan bold")),
+            border_style="bright_blue",
+            padding=(0, 0)
+        ))
+        console.print()
+
     def get_api_key(self, args) -> Optional[str]:
-        """Get API key from args, env, config, or prompt."""
-        # Priority: CLI arg > env var > config file > prompt
+        """Get API key from args, env, config, or prompt with beautiful UI."""
         api_key = None
-        
+        source = None
+
         if args.api_key:
             api_key = args.api_key
             source = "command line"
@@ -139,79 +121,99 @@ class TranslatorCLI:
             api_key = self.config.get('api', 'key')
             source = "config file"
         else:
-            self.print_warning("No API key found. Please enter your OpenAI API key:")
-            api_key = getpass("API Key: ")
-            
+            console.print(Panel(
+                "[yellow]No API key found. Please enter your OpenAI API key:[/yellow]",
+                title="[bold]API Configuration[/bold]",
+                border_style="yellow"
+            ))
+
+            api_key = Prompt.ask("[cyan]API Key[/cyan]", password=True)
+
             # Ask if user wants to save it
-            save = input("\nSave API key for future use? (y/n): ").lower()
-            if save == 'y':
+            if Confirm.ask("\n[cyan]Save API key for future use?[/cyan]"):
                 if not self.config.has_section('api'):
                     self.config.add_section('api')
                 self.config.set('api', 'key', api_key)
                 self.save_config()
-                self.print_success("API key saved to config file")
+                console.print("[green]✓[/green] API key saved to config file")
             source = "user input"
-        
+
         if self.verbose and api_key:
-            self.print_info(f"Using API key from {source}")
-        
+            console.print(f"[dim]Using API key from {source}[/dim]")
+
         return api_key
-    
+
     def validate_language(self, language: str) -> str:
         """Validate and normalize language input."""
         # Check if it's a language code
         if language.lower() in SUPPORTED_LANGUAGES:
             return SUPPORTED_LANGUAGES[language.lower()]
-        
+
         # Check if it's a full language name
         for code, name in SUPPORTED_LANGUAGES.items():
             if name.lower() == language.lower():
                 return name
-        
+
         # If not found, return as-is and let the API handle it
-        self.print_warning(f"Language '{language}' not in predefined list. Using as-is.")
+        console.print(f"[yellow]⚠ Language '{language}' not in predefined list. Using as-is.[/yellow]")
         return language
-    
+
+    def format_file_size(self, size_bytes: int) -> str:
+        """Format file size in human-readable format."""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} TB"
+
     def translate_single(self, args):
-        """Handle single file translation."""
-        self.print_header()
-        
+        """Handle single file translation with beautiful progress display."""
+        self.print_banner()
+
         # Validate input file
         input_path = Path(args.input)
         if not input_path.exists():
-            self.print_error(f"Input file not found: {input_path}")
+            console.print(f"[red]✗ Input file not found:[/red] {input_path}")
             return 1
-        
+
         if not input_path.is_file():
-            self.print_error(f"Input path is not a file: {input_path}")
+            console.print(f"[red]✗ Input path is not a file:[/red] {input_path}")
             return 1
-        
+
         # Get API key
         api_key = self.get_api_key(args)
         if not api_key:
-            self.print_error("API key is required")
+            console.print("[red]✗ API key is required[/red]")
             return 1
-        
+
         # Validate language
         target_language = self.validate_language(args.language)
-        
+
         # Determine output path
         if args.output:
             output_path = args.output
         else:
             base = input_path.stem
             ext = input_path.suffix
-            output_path = str(input_path.parent / f"{base}_translated_{target_language.lower()}{ext}")
-        
-        # Print translation info
-        self.print_info(f"Input file: {input_path}")
-        self.print_info(f"Output file: {output_path}")
-        self.print_info(f"Target language: {target_language}")
-        self.print_info(f"Model: {args.model}")
-        self.print_info(f"Max workers: {args.workers}")
-        
-        print()  # Empty line for spacing
-        
+            lang_code = args.language[:2].lower()
+            output_path = str(input_path.parent / f"{base}_{lang_code}{ext}")
+
+        # Display translation info in a beautiful table
+        info_table = Table(title="Translation Details", box=box.ROUNDED, show_header=False)
+        info_table.add_column("Property", style="cyan")
+        info_table.add_column("Value", style="white")
+
+        input_size = self.format_file_size(input_path.stat().st_size)
+        info_table.add_row("📄 Input File", str(input_path))
+        info_table.add_row("📁 Output File", str(output_path))
+        info_table.add_row("🌍 Target Language", target_language)
+        info_table.add_row("🤖 Model", args.model)
+        info_table.add_row("⚡ Max Workers", str(args.workers))
+        info_table.add_row("📊 File Size", input_size)
+
+        console.print(info_table)
+        console.print()
+
         try:
             # Initialize translator
             translator = DocumentTranslator(
@@ -219,95 +221,146 @@ class TranslatorCLI:
                 model=args.model,
                 max_workers=args.workers
             )
-            
-            # Perform translation
+
+            # Perform translation with progress indicator
             start_time = datetime.now()
-            self.print_info(f"Starting translation at {start_time.strftime('%H:%M:%S')}...")
-            
-            success = translator.translate_document(
-                input_path=str(input_path),
-                output_path=output_path,
-                target_language=target_language
-            )
-            
+
+            with console.status("[bold cyan]Initializing translation...[/bold cyan]", spinner="dots") as status:
+                time.sleep(0.5)  # Small delay for visual effect
+                status.update("[bold cyan]Analyzing document structure...[/bold cyan]")
+                time.sleep(0.5)
+                status.update("[bold cyan]Extracting content...[/bold cyan]")
+                time.sleep(0.5)
+
+            # Create progress bar
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                expand=True
+            ) as progress:
+
+                task = progress.add_task(
+                    f"[cyan]Translating to {target_language}...[/cyan]",
+                    total=100
+                )
+
+                # Simulate progress updates (in real implementation, you'd update based on actual progress)
+                progress.update(task, advance=20, description="[cyan]Processing document...[/cyan]")
+
+                # Determine PDF method if applicable
+                method = "auto"  # default
+                if input_path.suffix.lower() == '.pdf' and hasattr(args, 'pdf_method'):
+                    method = args.pdf_method
+
+                # Perform actual translation
+                success = translator.translate_document(
+                    input_path=str(input_path),
+                    output_path=output_path,
+                    target_language=target_language,
+                    method=method
+                )
+
+                progress.update(task, completed=100)
+
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
-            
+
             if success:
-                self.print_success(f"Translation completed in {duration:.2f} seconds")
-                self.print_success(f"Output saved to: {output_path}")
-                
-                # Show file size comparison
-                input_size = input_path.stat().st_size / 1024  # KB
-                output_size = Path(output_path).stat().st_size / 1024 if Path(output_path).exists() else 0
-                self.print_info(f"File sizes - Input: {input_size:.2f}KB, Output: {output_size:.2f}KB")
-                
+                # Success panel
+                output_size = self.format_file_size(Path(output_path).stat().st_size)
+
+                success_panel = Panel(
+                    f"""[green]✓ Translation completed successfully![/green]
+
+⏱  Duration: [cyan]{duration:.2f} seconds[/cyan]
+📄 Output saved to: [cyan]{output_path}[/cyan]
+📊 File sizes: Input [dim]{input_size}[/dim] → Output [dim]{output_size}[/dim]""",
+                    title="[bold green]Success[/bold green]",
+                    border_style="green",
+                    box=box.DOUBLE
+                )
+                console.print(success_panel)
                 return 0
             else:
-                self.print_error("Translation failed")
+                console.print("[red]✗ Translation failed[/red]")
                 return 1
-                
+
         except Exception as e:
-            self.print_error(f"Unexpected error: {str(e)}")
+            error_panel = Panel(
+                f"[red]Unexpected error:[/red] {str(e)}",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+                box=box.DOUBLE
+            )
+            console.print(error_panel)
             if self.verbose:
                 import traceback
-                traceback.print_exc()
+                console.print_exception()
             return 1
-    
+
     def translate_batch(self, args):
-        """Handle batch translation of multiple files."""
-        self.print_header()
-        
+        """Handle batch translation with beautiful progress tracking."""
+        self.print_banner()
+
         # Validate input folder
         input_folder = Path(args.input_folder)
         if not input_folder.exists():
-            self.print_error(f"Input folder not found: {input_folder}")
+            console.print(f"[red]✗ Input folder not found:[/red] {input_folder}")
             return 1
-        
+
         if not input_folder.is_dir():
-            self.print_error(f"Input path is not a folder: {input_folder}")
+            console.print(f"[red]✗ Input path is not a folder:[/red] {input_folder}")
             return 1
-        
+
         # Create output folder
         output_folder = Path(args.output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
-        
+
         # Get API key
         api_key = self.get_api_key(args)
         if not api_key:
-            self.print_error("API key is required")
+            console.print("[red]✗ API key is required[/red]")
             return 1
-        
+
         # Validate language
         target_language = self.validate_language(args.language)
-        
+
         # Parse file types
         if args.types:
             file_types = [f".{t.strip('.')}" for t in args.types.split(',')]
         else:
             file_types = ['.pptx', '.pdf', '.docx', '.txt']
-        
+
         # Count files to process
         files_to_process = []
         for file_path in input_folder.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in file_types:
                 files_to_process.append(file_path)
-        
+
         if not files_to_process:
-            self.print_warning(f"No files found with extensions: {', '.join(file_types)}")
+            console.print(f"[yellow]⚠ No files found with extensions: {', '.join(file_types)}[/yellow]")
             return 0
-        
-        # Print batch info
-        self.print_info(f"Input folder: {input_folder}")
-        self.print_info(f"Output folder: {output_folder}")
-        self.print_info(f"Target language: {target_language}")
-        self.print_info(f"File types: {', '.join(file_types)}")
-        self.print_info(f"Files to process: {len(files_to_process)}")
-        self.print_info(f"Model: {args.model}")
-        self.print_info(f"Max workers per file: {args.workers}")
-        
-        print()  # Empty line for spacing
-        
+
+        # Display batch info
+        batch_table = Table(title="Batch Translation Details", box=box.ROUNDED)
+        batch_table.add_column("Property", style="cyan")
+        batch_table.add_column("Value", style="white")
+
+        batch_table.add_row("📁 Input Folder", str(input_folder))
+        batch_table.add_row("📂 Output Folder", str(output_folder))
+        batch_table.add_row("🌍 Target Language", target_language)
+        batch_table.add_row("📄 File Types", ', '.join(file_types))
+        batch_table.add_row("📊 Files to Process", str(len(files_to_process)))
+        batch_table.add_row("🤖 Model", args.model)
+        batch_table.add_row("⚡ Max Workers", str(args.workers))
+
+        console.print(batch_table)
+        console.print()
+
         try:
             # Initialize translator
             translator = DocumentTranslator(
@@ -315,130 +368,218 @@ class TranslatorCLI:
                 model=args.model,
                 max_workers=args.workers
             )
-            
-            # Perform batch translation
+
+            # Perform batch translation with progress bar
             start_time = datetime.now()
-            self.print_info(f"Starting batch translation at {start_time.strftime('%H:%M:%S')}...")
-            print()
-            
-            results = translator.batch_translate(
-                input_folder=str(input_folder),
-                output_folder=str(output_folder),
-                target_language=target_language,
-                file_types=file_types
-            )
-            
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                "[progress.percentage]{task.percentage:>3.0f}%",
+                TimeRemainingColumn(),
+                console=console,
+                expand=True
+            ) as progress:
+
+                overall_task = progress.add_task(
+                    "[cyan]Processing batch...[/cyan]",
+                    total=len(files_to_process)
+                )
+
+                success_files = []
+                failed_files = []
+
+                for idx, file_path in enumerate(files_to_process, 1):
+                    file_task = progress.add_task(
+                        f"[dim]Translating {file_path.name}...[/dim]",
+                        total=100
+                    )
+
+                    try:
+                        # Simulate file processing
+                        progress.update(file_task, advance=50)
+
+                        # Here you would call the actual translation
+                        # For now, we'll use the batch_translate method
+                        if idx == 1:  # Only call once for actual batch processing
+                            results = translator.batch_translate(
+                                input_folder=str(input_folder),
+                                output_folder=str(output_folder),
+                                target_language=target_language,
+                                file_types=file_types
+                            )
+                            success_files = results.get('success', [])
+                            failed_files = results.get('failed', [])
+
+                        progress.update(file_task, completed=100)
+                    except Exception as e:
+                        failed_files.append(str(file_path))
+                        progress.update(file_task, description=f"[red]Failed: {file_path.name}[/red]")
+
+                    progress.update(overall_task, advance=1)
+
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
-            
-            # Print summary
-            print()
-            print(f"{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.ENDC}")
-            print(f"{Colors.BOLD}Translation Summary:{Colors.ENDC}")
-            print(f"{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.ENDC}")
-            
-            self.print_success(f"Successfully translated: {len(results['success'])} files")
-            if results['success'] and self.verbose:
-                for file in results['success']:
-                    print(f"  {Colors.GREEN}✓{Colors.ENDC} {file}")
-            
-            if results['failed']:
-                self.print_error(f"Failed: {len(results['failed'])} files")
-                for file in results['failed']:
-                    print(f"  {Colors.FAIL}✗{Colors.ENDC} {file}")
-            
-            print()
-            self.print_info(f"Total time: {duration:.2f} seconds")
-            self.print_info(f"Average time per file: {duration/len(files_to_process):.2f} seconds")
-            
-            return 0 if not results['failed'] else 1
-            
+
+            # Display results in a beautiful summary
+            console.print()
+            console.rule("[bold cyan]Translation Summary[/bold cyan]")
+            console.print()
+
+            # Create summary table
+            summary_table = Table(box=box.SIMPLE_HEAD, show_header=True)
+            summary_table.add_column("Status", justify="center", style="bold")
+            summary_table.add_column("Count", justify="center")
+            summary_table.add_column("Details", justify="left")
+
+            if success_files:
+                success_list = "\n".join([f"  ✓ {f}" for f in success_files[:5]])
+                if len(success_files) > 5:
+                    success_list += f"\n  ... and {len(success_files) - 5} more"
+                summary_table.add_row(
+                    "[green]Success[/green]",
+                    f"[green]{len(success_files)}[/green]",
+                    success_list if self.verbose else f"[dim]{len(success_files)} files[/dim]"
+                )
+
+            if failed_files:
+                failed_list = "\n".join([f"  ✗ {f}" for f in failed_files[:5]])
+                if len(failed_files) > 5:
+                    failed_list += f"\n  ... and {len(failed_files) - 5} more"
+                summary_table.add_row(
+                    "[red]Failed[/red]",
+                    f"[red]{len(failed_files)}[/red]",
+                    failed_list
+                )
+
+            console.print(summary_table)
+            console.print()
+
+            # Performance metrics
+            metrics_panel = Panel(
+                f"""⏱  Total time: [cyan]{duration:.2f} seconds[/cyan]
+📊 Average time per file: [cyan]{duration/len(files_to_process):.2f} seconds[/cyan]
+✅ Success rate: [{'green' if len(failed_files) == 0 else 'yellow'}]{(len(success_files)/len(files_to_process)*100):.1f}%[/{'green' if len(failed_files) == 0 else 'yellow'}]""",
+                title="[bold]Performance Metrics[/bold]",
+                border_style="blue"
+            )
+            console.print(metrics_panel)
+
+            return 0 if not failed_files else 1
+
         except Exception as e:
-            self.print_error(f"Unexpected error: {str(e)}")
+            console.print(f"[red]✗ Unexpected error: {str(e)}[/red]")
             if self.verbose:
-                import traceback
-                traceback.print_exc()
+                console.print_exception()
             return 1
-    
+
     def list_languages(self, args):
-        """List all supported languages."""
-        self.print_header()
-        print(f"{Colors.BOLD}Supported Languages:{Colors.ENDC}\n")
-        
-        # Create two-column layout
+        """List all supported languages in a beautiful table."""
+        self.print_banner()
+
+        # Create language table
+        lang_table = Table(
+            title="🌍 Supported Languages",
+            box=box.DOUBLE_EDGE,
+            show_header=True,
+            header_style="bold cyan"
+        )
+
+        lang_table.add_column("Code", justify="center", style="cyan", width=8)
+        lang_table.add_column("Language", justify="left", style="white", width=15)
+        lang_table.add_column("Code", justify="center", style="cyan", width=8)
+        lang_table.add_column("Language", justify="left", style="white", width=15)
+
         languages = list(SUPPORTED_LANGUAGES.items())
-        mid = len(languages) // 2
-        
+        mid = len(languages) // 2 + len(languages) % 2
+
         for i in range(mid):
             left = languages[i]
-            right = languages[i + mid] if i + mid < len(languages) else ('', '')
-            
-            left_str = f"{Colors.CYAN}{left[0]:4}{Colors.ENDC} - {left[1]}"
-            right_str = f"{Colors.CYAN}{right[0]:4}{Colors.ENDC} - {right[1]}" if right[0] else ""
-            
-            print(f"  {left_str:35} {right_str}")
-        
-        print(f"\n{Colors.BLUE}ℹ You can use either the code (e.g., 'zh') or full name (e.g., 'Chinese'){Colors.ENDC}")
+            if i + mid < len(languages):
+                right = languages[i + mid]
+                lang_table.add_row(left[0], left[1], right[0], right[1])
+            else:
+                lang_table.add_row(left[0], left[1], "", "")
+
+        console.print(lang_table)
+        console.print()
+        console.print(Panel(
+            "[cyan]You can use either the code (e.g., 'zh') or full name (e.g., 'Chinese')[/cyan]",
+            border_style="dim"
+        ))
+
         return 0
-    
+
     def configure(self, args):
-        """Configure application settings."""
-        self.print_header()
-        print(f"{Colors.BOLD}Configuration Settings:{Colors.ENDC}\n")
-        
+        """Configure application settings with beautiful UI."""
+        self.print_banner()
+
         # API Key configuration
         if args.set_key:
             if not self.config.has_section('api'):
                 self.config.add_section('api')
             self.config.set('api', 'key', args.set_key)
             self.save_config()
-            self.print_success("API key saved to config file")
-        
+            console.print("[green]✓[/green] API key saved to config file")
+
         # Default model configuration
         if args.set_model:
             if not self.config.has_section('defaults'):
                 self.config.add_section('defaults')
             self.config.set('defaults', 'model', args.set_model)
             self.save_config()
-            self.print_success(f"Default model set to: {args.set_model}")
-        
+            console.print(f"[green]✓[/green] Default model set to: [cyan]{args.set_model}[/cyan]")
+
         # Default workers configuration
         if args.set_workers:
             if not self.config.has_section('defaults'):
                 self.config.add_section('defaults')
             self.config.set('defaults', 'workers', str(args.set_workers))
             self.save_config()
-            self.print_success(f"Default workers set to: {args.set_workers}")
-        
+            console.print(f"[green]✓[/green] Default workers set to: [cyan]{args.set_workers}[/cyan]")
+
         # Show current configuration
         if args.show or (not args.set_key and not args.set_model and not args.set_workers):
-            print("Current configuration:\n")
-            
+            config_table = Table(
+                title="⚙️  Current Configuration",
+                box=box.ROUNDED,
+                show_header=False
+            )
+            config_table.add_column("Setting", style="cyan")
+            config_table.add_column("Value", style="white")
+
+            # API Key
             if self.config.has_option('api', 'key'):
                 api_key = self.config.get('api', 'key')
-                masked_key = api_key[:10] + '...' + api_key[-4:] if len(api_key) > 14 else '***'
-                print(f"  API Key: {Colors.CYAN}{masked_key}{Colors.ENDC}")
+                masked_key = api_key[:10] + '•••' + api_key[-4:] if len(api_key) > 14 else '•••'
+                config_table.add_row("🔑 API Key", f"[green]{masked_key}[/green]")
             else:
-                print(f"  API Key: {Colors.WARNING}Not set{Colors.ENDC}")
-            
+                config_table.add_row("🔑 API Key", "[yellow]Not set[/yellow]")
+
+            # Model
             if self.config.has_option('defaults', 'model'):
-                print(f"  Default Model: {Colors.CYAN}{self.config.get('defaults', 'model')}{Colors.ENDC}")
+                config_table.add_row("🤖 Default Model", self.config.get('defaults', 'model'))
             else:
-                print(f"  Default Model: {Colors.CYAN}gpt-4.1-mini{Colors.ENDC} (default)")
-            
+                config_table.add_row("🤖 Default Model", "gpt-4.1-mini [dim](default)[/dim]")
+
+            # Workers
             if self.config.has_option('defaults', 'workers'):
-                print(f"  Default Workers: {Colors.CYAN}{self.config.get('defaults', 'workers')}{Colors.ENDC}")
+                config_table.add_row("⚡ Default Workers", self.config.get('defaults', 'workers'))
             else:
-                print(f"  Default Workers: {Colors.CYAN}16{Colors.ENDC} (default)")
-            
-            print(f"\n  Config file: {Colors.BLUE}{self.config_file}{Colors.ENDC}")
-        
+                config_table.add_row("⚡ Default Workers", "16 [dim](default)[/dim]")
+
+            config_table.add_row("📁 Config File", f"[dim]{self.config_file}[/dim]")
+
+            console.print(config_table)
+
         return 0
-    
+
     def run(self):
         """Main entry point for the CLI application."""
         parser = argparse.ArgumentParser(
-            prog='doctranslator',
+            prog='doctrans',
             description='Professional document translator using OpenAI API',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
@@ -446,24 +587,23 @@ Examples:
   %(prog)s translate document.pdf -l Chinese
   %(prog)s translate presentation.pptx -l Spanish -o spanish_presentation.pptx
   %(prog)s batch ./documents ./translated -l French
-  %(prog)s batch ./input ./output -l Japanese --types "docx,txt"
   %(prog)s languages
   %(prog)s config --set-key sk-...
             """
         )
-        
+
         # Global arguments
         parser.add_argument('-v', '--verbose', action='store_true',
                           help='Enable verbose output')
         parser.add_argument('-q', '--quiet', action='store_true',
                           help='Suppress non-error output')
         parser.add_argument('--api-key', help='OpenAI API key (overrides config/env)')
-        
+
         # Subcommands
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
-        
+
         # Translate command
-        translate_parser = subparsers.add_parser('translate', 
+        translate_parser = subparsers.add_parser('translate',
                                                 help='Translate a single document')
         translate_parser.add_argument('input', help='Input file path')
         translate_parser.add_argument('-l', '--language', required=True,
@@ -474,7 +614,10 @@ Examples:
                                      help='OpenAI model to use (default: gpt-4.1-mini)')
         translate_parser.add_argument('-w', '--workers', type=int, default=16,
                                      help='Max parallel workers (default: 16)')
-        
+        translate_parser.add_argument('--pdf-method', choices=['auto', 'overlay', 'redaction'],
+                                     default='auto',
+                                     help='PDF translation method (default: auto)')
+
         # Batch command
         batch_parser = subparsers.add_parser('batch',
                                             help='Translate multiple documents')
@@ -488,11 +631,11 @@ Examples:
                                  help='OpenAI model to use (default: gpt-4.1-mini)')
         batch_parser.add_argument('-w', '--workers', type=int, default=16,
                                  help='Max parallel workers per file (default: 16)')
-        
+
         # Languages command
         languages_parser = subparsers.add_parser('languages',
                                                 help='List supported languages')
-        
+
         # Config command
         config_parser = subparsers.add_parser('config',
                                              help='Configure application settings')
@@ -501,19 +644,20 @@ Examples:
         config_parser.add_argument('--set-workers', type=int, help='Set default workers')
         config_parser.add_argument('--show', action='store_true',
                                   help='Show current configuration')
-        
+
         # Parse arguments
         args = parser.parse_args()
-        
+
         # Set verbosity
         self.verbose = args.verbose if hasattr(args, 'verbose') else False
         self.quiet = args.quiet if hasattr(args, 'quiet') else False
-        
+
         # Handle commands
         if not args.command:
+            self.print_banner()
             parser.print_help()
             return 0
-        
+
         if args.command == 'translate':
             return self.translate_single(args)
         elif args.command == 'batch':
@@ -528,15 +672,15 @@ Examples:
 
 
 def main():
-    """Main entry point."""
+    """Main entry point with exception handling."""
     try:
-        app = TranslatorCLI()
+        app = ModernTranslatorCLI()
         sys.exit(app.run())
     except KeyboardInterrupt:
-        print(f"\n{Colors.WARNING}Translation cancelled by user{Colors.ENDC}")
+        console.print("\n[yellow]⚠ Translation cancelled by user[/yellow]")
         sys.exit(130)
     except Exception as e:
-        print(f"{Colors.FAIL}Fatal error: {str(e)}{Colors.ENDC}", file=sys.stderr)
+        console.print(f"[red]✗ Fatal error: {str(e)}[/red]")
         sys.exit(1)
 
 

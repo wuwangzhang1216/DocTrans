@@ -1,30 +1,52 @@
 import os
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import openai
 from openai import OpenAI
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
-import threading
+from dataclasses import dataclass
+import re
+
+# PyMuPDF for improved PDF handling
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    import pymupdf as fitz
 
 # Document processing libraries
 from pptx import Presentation
 from pptx.util import Inches, Pt
-import PyPDF2
 from docx import Document
 import pdfplumber
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_LEFT
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+import platform
+
+@dataclass
+class TextBlock:
+    """Data class to store text block information"""
+    bbox: tuple  # (x0, y0, x1, y1)
+    text: str
+    font: str = None
+    font_size: float = None
+    flags: int = 0
+    color: int = 0
+    block_no: int = 0
+    block_type: int = 0
 
 class DocumentTranslator:
     """
-    A comprehensive document translator that handles multiple file formats
-    and translates content using OpenAI API with parallel processing support.
-
-    Features:
-    - Supports PDF, PPTX, DOCX, and TXT file formats
-    - Parallel processing for improved performance on multi-page/multi-slide documents
-    - Thread-safe implementation using separate OpenAI client instances
-    - Configurable number of parallel workers
+    An improved document translator that better preserves PDF layout
+    using PyMuPDF's advanced features for overlay and redaction.
+    Supports PDF, PPTX, DOCX, and TXT files.
     """
     
     def __init__(self, api_key: str, model: str = "gpt-4.1-mini", max_workers: int = 16):
@@ -34,7 +56,7 @@ class DocumentTranslator:
         Args:
             api_key: OpenAI API key
             model: OpenAI model to use for translation (default: gpt-4.1-mini)
-            max_workers: Maximum number of parallel workers for processing (default: 16
+            max_workers: Maximum number of parallel workers for processing
         """
         self.client = OpenAI(api_key=api_key)
         self.model = model
@@ -86,6 +108,8 @@ class DocumentTranslator:
         except Exception as e:
             print(f"Translation error: {str(e)}")
             return text
+
+    # ============= PPTX Translation Methods =============
     
     def translate_slide_content(self, slide_data: tuple) -> dict:
         """
@@ -324,121 +348,14 @@ class DocumentTranslator:
 
             # Save translated presentation
             prs.save(output_path)
-            print(f"✓ Translated PPTX saved to: {output_path}")
+            print(f"✅ Translated PPTX saved to: {output_path}")
             return True
 
         except Exception as e:
             print(f"Error translating PPTX: {str(e)}")
             return False
-    
-    def translate_pdf_page(self, page_data: tuple) -> str:
-        """
-        Translate a single PDF page. Helper method for parallel processing.
 
-        Args:
-            page_data: Tuple containing (page_number, page_text, target_language, api_key, model)
-
-        Returns:
-            Formatted translated page text
-        """
-        page_num, text, target_language, api_key, model = page_data
-
-        if not text or not text.strip():
-            return f"=== Page {page_num} ===\n\n"
-
-        try:
-            # Create a new client instance for thread safety
-            client = OpenAI(api_key=api_key)
-
-            prompt = (
-                f"Translate to {target_language} with native, accurate, technical wording.\n"
-                "Strictly preserve original layout: line breaks, indentation, spacing, bullet/numbered lists (markers and levels), tables (as text), and code blocks.\n"
-                "Do not add explanations. Do not translate code, paths, or placeholders like {var}, <tag>, [1].\n\n"
-                f"Text to translate:\n{text}"
-            )
-
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"You are a professional technical translator. Translate into {target_language} precisely and preserve formatting.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_completion_tokens=4000
-            )
-
-            translated = response.choices[0].message.content.strip()
-            return f"=== Page {page_num} ===\n{translated}\n"
-
-        except Exception as e:
-            print(f"Translation error on page {page_num}: {str(e)}")
-            return f"=== Page {page_num} ===\n[Translation failed: {text}]\n"
-
-    def translate_pdf(self, input_path: str, output_path: str,
-                     target_language: str) -> bool:
-        """
-        Translate PDF document (creates a text file with translations).
-        Note: PDFs are read-only, so we output translated text to a .txt file.
-
-        Args:
-            input_path: Path to input PDF file
-            output_path: Path to save translated text file
-            target_language: Target language for translation
-
-        Returns:
-            Success status
-        """
-        try:
-            # Extract text from all pages first
-            pages_data = []
-            with pdfplumber.open(input_path) as pdf:
-                for i, page in enumerate(pdf.pages, 1):
-                    text = page.extract_text()
-                    if text and text.strip():
-                        pages_data.append((i, text, target_language, self.client.api_key, self.model))
-
-            if not pages_data:
-                print("No text found in PDF")
-                return False
-
-            print(f"Processing {len(pages_data)} pages with {min(self.max_workers, len(pages_data))} parallel workers...")
-
-            # Process pages in parallel
-            translated_pages = [None] * len(pages_data)
-            with ThreadPoolExecutor(max_workers=min(self.max_workers, len(pages_data))) as executor:
-                # Submit all translation tasks
-                future_to_index = {
-                    executor.submit(self.translate_pdf_page, page_data): idx
-                    for idx, page_data in enumerate(pages_data)
-                }
-
-                # Collect results as they complete
-                for future in concurrent.futures.as_completed(future_to_index):
-                    idx = future_to_index[future]
-                    try:
-                        translated_pages[idx] = future.result()
-                    except Exception as e:
-                        page_num = pages_data[idx][0]
-                        translated_pages[idx] = f"=== Page {page_num} ===\n[Translation failed]\n"
-                        print(f"Page {page_num} translation failed: {str(e)}")
-
-            # Sort pages by page number to maintain order
-            translated_pages.sort(key=lambda x: int(x.split('=== Page ')[1].split(' ===')[0]))
-
-            # Save translated text
-            output_txt = output_path.replace('.pdf', '_translated.txt')
-            with open(output_txt, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(translated_pages))
-
-            print(f"✓ Translated PDF text saved to: {output_txt}")
-            print("Note: PDF structure cannot be preserved. Translation saved as text file.")
-            return True
-
-        except Exception as e:
-            print(f"Error translating PDF: {str(e)}")
-            return False
+    # ============= DOCX Translation Methods =============
     
     def translate_paragraph_batch(self, batch_data: tuple) -> dict:
         """
@@ -672,13 +589,282 @@ class DocumentTranslator:
 
             # Save translated document
             doc.save(output_path)
-            print(f"✓ Translated DOCX saved to: {output_path}")
+            print(f"✅ Translated DOCX saved to: {output_path}")
             return True
 
         except Exception as e:
             print(f"Error translating DOCX: {str(e)}")
             return False
-    
+
+    # ============= PDF Translation Methods (Improved) =============
+
+    def translate_pdf_with_overlay(self, input_path: str, output_path: str,
+                                  target_language: str) -> bool:
+        """
+        Translate PDF using overlay method to preserve layout.
+        This method creates a new layer with translated text over the original.
+        
+        Args:
+            input_path: Path to input PDF file
+            output_path: Path to save translated PDF file
+            target_language: Target language for translation
+            
+        Returns:
+            Success status
+        """
+        try:
+            # Open the source PDF
+            src_doc = fitz.open(input_path)
+            
+            # Create a new document for the translation
+            doc = fitz.open()
+            
+            print(f"Processing {len(src_doc)} pages...")
+            
+            for page_num, src_page in enumerate(src_doc, 1):
+                print(f"Translating page {page_num}/{len(src_doc)}...")
+                
+                # Create a new page with the same dimensions
+                page = doc.new_page(
+                    width=src_page.rect.width,
+                    height=src_page.rect.height
+                )
+                
+                # First, copy the original page as a background (preserves images, graphics, etc.)
+                page.show_pdf_page(page.rect, src_doc, src_page.number)
+                
+                # Extract text blocks with position information
+                blocks = src_page.get_text("dict")
+                
+                # Process each text block
+                for block in blocks.get("blocks", []):
+                    if block.get("type") == 0:  # Text block
+                        # Create white rectangles to cover original text
+                        bbox = fitz.Rect(block["bbox"])
+                        # Add a white rectangle to hide original text
+                        page.draw_rect(bbox, color=(1, 1, 1), fill=(1, 1, 1))
+                        
+                        # Extract and translate text from the block
+                        block_text = ""
+                        for line in block.get("lines", []):
+                            for span in line.get("spans", []):
+                                if span.get("text"):
+                                    block_text += span["text"] + " "
+                        
+                        if block_text.strip():
+                            # Translate the text
+                            translated_text = self.translate_text(
+                                block_text.strip(), 
+                                target_language
+                            )
+                            
+                            # Get font information from the first span
+                            font_info = None
+                            for line in block.get("lines", []):
+                                for span in line.get("spans", []):
+                                    font_info = span
+                                    break
+                                if font_info:
+                                    break
+                            
+                            # Insert translated text using insert_htmlbox for better layout
+                            if font_info:
+                                font_size = font_info.get("size", 11)
+                                font_color = font_info.get("color", 0)
+                                
+                                # Convert color from integer to RGB
+                                color_rgb = self._int_to_rgb(font_color)
+                                
+                                # Create HTML with styling
+                                html = f'<span style="font-size:{font_size}pt; color:rgb{color_rgb};">{translated_text}</span>'
+                                
+                                # Insert the translated text
+                                page.insert_htmlbox(
+                                    bbox,
+                                    html,
+                                    css="body { margin: 0; padding: 2px; }"
+                                )
+            
+            # Save the translated PDF
+            doc.save(output_path, garbage=3, deflate=True)
+            doc.close()
+            src_doc.close()
+            
+            print(f"✅ Translated PDF saved to: {output_path}")
+            return True
+            
+        except Exception as e:
+            print(f"Error translating PDF with overlay: {str(e)}")
+            return False
+
+    def translate_pdf_with_redaction(self, input_path: str, output_path: str,
+                                    target_language: str) -> bool:
+        """
+        Translate PDF using redaction method - better for text-heavy documents.
+        This removes original text and replaces it with translated text.
+        
+        Args:
+            input_path: Path to input PDF file
+            output_path: Path to save translated PDF file
+            target_language: Target language for translation
+            
+        Returns:
+            Success status
+        """
+        try:
+            doc = fitz.open(input_path)
+            
+            print(f"Processing {len(doc)} pages with redaction method...")
+            
+            for page_num, page in enumerate(doc, 1):
+                print(f"Translating page {page_num}/{len(doc)}...")
+                
+                # Extract text with detailed information
+                blocks = page.get_text("dict", flags=11)
+                
+                # Store translation info for later insertion
+                translations = []
+                
+                # Process each block
+                for block in blocks.get("blocks", []):
+                    if block.get("type") == 0:  # Text block
+                        block_bbox = fitz.Rect(block["bbox"])
+                        
+                        # Collect text from all spans in the block
+                        block_text = ""
+                        first_span = None
+                        
+                        for line in block.get("lines", []):
+                            for span in line.get("spans", []):
+                                if not first_span:
+                                    first_span = span
+                                text = span.get("text", "")
+                                if text:
+                                    block_text += text + " "
+                        
+                        if block_text.strip() and first_span:
+                            # Translate the text
+                            translated = self.translate_text(
+                                block_text.strip(),
+                                target_language
+                            )
+                            
+                            # Store translation info
+                            translations.append({
+                                'bbox': block_bbox,
+                                'text': translated,
+                                'font_size': first_span.get("size", 11),
+                                'color': first_span.get("color", 0),
+                                'flags': first_span.get("flags", 0)
+                            })
+                            
+                            # Add redaction annotation to remove original text
+                            page.add_redact_annot(block_bbox)
+                
+                # Apply redactions (removes original text)
+                page.apply_redactions()
+                
+                # Insert translated text
+                for trans in translations:
+                    # Calculate if text is bold or italic from flags
+                    fontname = "helv"  # Default font
+                    if trans['flags'] & 2**4:  # Bold
+                        fontname = "hebo"
+                    elif trans['flags'] & 2**1:  # Italic  
+                        fontname = "heti"
+                    
+                    # Convert color
+                    color_rgb = self._int_to_rgb(trans['color'])
+                    
+                    # Create HTML for better text fitting
+                    html = (
+                        f'<span style="font-size:{trans["font_size"]}pt; '
+                        f'color:rgb{color_rgb}; '
+                        f'font-family: sans-serif;">{trans["text"]}</span>'
+                    )
+                    
+                    # Insert text using htmlbox for better layout control
+                    page.insert_htmlbox(
+                        trans['bbox'],
+                        html,
+                        css="body { margin: 0; padding: 2px; line-height: 1.2; }"
+                    )
+            
+            # Optimize and save
+            doc.save(output_path, garbage=3, deflate=True, clean=True)
+            doc.close()
+            
+            print(f"✅ Translated PDF (redaction method) saved to: {output_path}")
+            return True
+            
+        except Exception as e:
+            print(f"Error in redaction translation: {str(e)}")
+            return False
+
+    def translate_pdf_hybrid(self, input_path: str, output_path: str,
+                           target_language: str) -> bool:
+        """
+        Hybrid approach: Analyzes the PDF and chooses the best method.
+        Uses overlay for PDFs with complex backgrounds, redaction for text-heavy docs.
+        
+        Args:
+            input_path: Path to input PDF file
+            output_path: Path to save translated PDF file  
+            target_language: Target language for translation
+            
+        Returns:
+            Success status
+        """
+        try:
+            # Analyze the PDF to determine best approach
+            doc = fitz.open(input_path)
+            
+            # Check if PDF has images or complex backgrounds
+            has_complex_background = False
+            total_images = 0
+            total_text_blocks = 0
+            
+            for page in doc:
+                # Count images
+                image_list = page.get_images()
+                total_images += len(image_list)
+                
+                # Count text blocks
+                blocks = page.get_text("dict")
+                for block in blocks.get("blocks", []):
+                    if block.get("type") == 0:
+                        total_text_blocks += 1
+                
+                # Check for background elements
+                if len(page.get_drawings()) > 10:  # Many vector graphics
+                    has_complex_background = True
+            
+            doc.close()
+            
+            # Decide method based on analysis
+            if has_complex_background or total_images > total_text_blocks * 0.3:
+                print("📊 Detected complex layout/images - using overlay method...")
+                return self.translate_pdf_with_overlay(input_path, output_path, target_language)
+            else:
+                print("📝 Detected text-heavy document - using redaction method...")
+                return self.translate_pdf_with_redaction(input_path, output_path, target_language)
+                
+        except Exception as e:
+            print(f"Error in hybrid translation: {str(e)}")
+            # Fallback to overlay method
+            return self.translate_pdf_with_overlay(input_path, output_path, target_language)
+
+    def _int_to_rgb(self, color_int: int) -> tuple:
+        """Convert integer color to RGB tuple."""
+        if color_int == 0:
+            return (0, 0, 0)
+        r = (color_int >> 16) & 0xFF
+        g = (color_int >> 8) & 0xFF
+        b = color_int & 0xFF
+        return (r, g, b)
+
+    # ============= Other Methods =============
+
     def translate_txt(self, input_path: str, output_path: str, 
                      target_language: str) -> bool:
         """
@@ -701,7 +887,7 @@ class DocumentTranslator:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(translated)
             
-            print(f"✓ Translated TXT saved to: {output_path}")
+            print(f"✅ Translated TXT saved to: {output_path}")
             return True
             
         except Exception as e:
@@ -709,7 +895,7 @@ class DocumentTranslator:
             return False
     
     def translate_document(self, input_path: str, output_path: Optional[str] = None,
-                          target_language: str = "Spanish") -> bool:
+                          target_language: str = "Spanish", method: str = "auto") -> bool:
         """
         Main method to translate any supported document format.
         
@@ -717,6 +903,7 @@ class DocumentTranslator:
             input_path: Path to input document
             output_path: Path to save translated document (optional)
             target_language: Target language for translation
+            method: PDF translation method - "overlay", "redaction", or "auto"
             
         Returns:
             Success status
@@ -734,7 +921,13 @@ class DocumentTranslator:
         if file_ext == '.pptx':
             return self.translate_pptx(input_path, output_path, target_language)
         elif file_ext == '.pdf':
-            return self.translate_pdf(input_path, output_path, target_language)
+            # Choose PDF translation method
+            if method == "overlay":
+                return self.translate_pdf_with_overlay(input_path, output_path, target_language)
+            elif method == "redaction":
+                return self.translate_pdf_with_redaction(input_path, output_path, target_language)
+            else:  # auto
+                return self.translate_pdf_hybrid(input_path, output_path, target_language)
         elif file_ext == '.docx':
             return self.translate_docx(input_path, output_path, target_language)
         elif file_ext in ['.txt', '.text']:
@@ -768,7 +961,7 @@ class DocumentTranslator:
         # Process each file
         for file_path in Path(input_folder).iterdir():
             if file_path.suffix.lower() in file_types:
-                print(f"\nProcessing: {file_path.name}")
+                print(f"\n📄 Processing: {file_path.name}")
                 output_path = str(Path(output_folder) / f"{file_path.stem}_translated{file_path.suffix}")
                 
                 if self.translate_document(str(file_path), output_path, target_language):
@@ -779,9 +972,9 @@ class DocumentTranslator:
         # Print summary
         print("\n" + "="*50)
         print("Translation Summary:")
-        print(f"✓ Successfully translated: {len(results['success'])} files")
+        print(f"✅ Successfully translated: {len(results['success'])} files")
         if results['failed']:
-            print(f"✗ Failed: {len(results['failed'])} files")
+            print(f"❌ Failed: {len(results['failed'])} files")
             for file in results['failed']:
                 print(f"  - {file}")
         
@@ -791,42 +984,33 @@ class DocumentTranslator:
 # Example usage
 if __name__ == "__main__":
     # Initialize translator with your OpenAI API key
-    API_KEY = "you_api_key"  # Replace with your actual API key
+    API_KEY = "YOUR_API_KEY"  # Replace with your actual API key
     
-    # Initialize translator with parallel processing (max_workers=32 for faster processing)
-    translator = DocumentTranslator(api_key=API_KEY, max_workers=32)
-
-    # Example 1: Translate a single PowerPoint presentation (uses parallel processing for slides)
+    # Create improved translator
+    translator = DocumentTranslator(api_key=API_KEY, max_workers=16)
+    
+    # Example 1: Translate PDF with automatic method selection (recommended)
     translator.translate_document(
-        input_path="test.pptx",
-        target_language="Chinese"
+        input_path="test.docx",
+        target_language="Chinese",
+        method="auto"  # Automatically chooses best method
     )
     
-    # # Example 2: Translate a PDF document (uses parallel processing for pages)
+    # Example 2: Translate PowerPoint presentation
     # translator.translate_document(
-    #     input_path="document.pdf",
+    #     input_path="presentation.pptx",
     #     target_language="French"
     # )
-
-    # # Example 3: Translate a Word document with custom output path (uses parallel processing for paragraphs)
+    
+    # Example 3: Translate Word document
     # translator.translate_document(
     #     input_path="report.docx",
-    #     output_path="report_chinese.docx",
-    #     target_language="Chinese"
-    # )
-
-    # # Example 4: Batch translate all documents in a folder (each file uses parallel processing)
-    # translator.batch_translate(
-    #     input_folder="documents/",
-    #     output_folder="translated_documents/",
-    #     target_language="Japanese",
-    #     file_types=['.pptx', '.docx', '.pdf']
+    #     target_language="Spanish"
     # )
     
-    # # Example 5: Translate with custom settings
-    # # Use a different model for faster/cheaper translation
-    # fast_translator = DocumentTranslator(api_key=API_KEY, model="gpt-3.5-turbo")
-    # fast_translator.translate_document(
-    #     input_path="quick_doc.txt",
-    #     target_language="German"
+    # Example 4: Batch translate all documents
+    # translator.batch_translate(
+    #     input_folder="documents/",
+    #     output_folder="translated/",
+    #     target_language="Japanese"
     # )
