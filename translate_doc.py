@@ -655,7 +655,7 @@ class DocumentTranslator:
                                   target_language: str) -> bool:
         """
         Translate PDF using overlay method to preserve layout.
-        This method creates a new layer with translated text over the original.
+        This method adds translated text over the original text without duplicating pages.
 
         Args:
             input_path: Path to input PDF file
@@ -666,13 +666,10 @@ class DocumentTranslator:
             Success status
         """
         try:
-            # Open the source PDF
-            src_doc = fitz.open(input_path)
+            # Open the PDF document directly (modify in place)
+            doc = fitz.open(input_path)
 
-            # Create a new document for the translation
-            doc = fitz.open()
-
-            total_pages = len(src_doc)
+            total_pages = len(doc)
             workers_per_page, concurrent_pages = self._calculate_workers_per_page(total_pages)
 
             print(f"Processing {total_pages} pages with dynamic allocation:")
@@ -682,8 +679,9 @@ class DocumentTranslator:
 
             # Extract all pages data first
             pages_data = []
-            for page_num, src_page in enumerate(src_doc):
-                blocks = src_page.get_text("dict")
+            for page_num in range(total_pages):
+                page = doc[page_num]
+                blocks = page.get_text("dict")
                 page_blocks = []
 
                 for block in blocks.get("blocks", []):
@@ -716,8 +714,6 @@ class DocumentTranslator:
 
                 pages_data.append({
                     'page_num': page_num,
-                    'width': src_page.rect.width,
-                    'height': src_page.rect.height,
                     'blocks': page_blocks
                 })
 
@@ -759,18 +755,10 @@ class DocumentTranslator:
                             except Exception as e:
                                 print(f"Block {block_idx} translation failed: {str(e)}")
 
-                # Apply translations to pages
+                # Apply translations to pages (in place overlay)
                 for page_data in batch_pages:
                     page_num = page_data['page_num']
-
-                    # Create a new page with the same dimensions
-                    page = doc.new_page(
-                        width=page_data['width'],
-                        height=page_data['height']
-                    )
-
-                    # Copy the original page as background
-                    page.show_pdf_page(page.rect, src_doc, page_num)
+                    page = doc[page_num]
 
                     # Apply translated blocks
                     for block_idx, block in enumerate(page_data['blocks']):
@@ -783,18 +771,26 @@ class DocumentTranslator:
                         if global_idx in translated_blocks:
                             translated_text = translated_blocks[global_idx]
                             color_rgb = self._int_to_rgb(block['font_color'])
-                            html = f'<span style="font-size:{block["font_size"]}pt; color:rgb{color_rgb};">{translated_text}</span>'
 
+                            # Use htmlbox for reliable rendering (handles all languages and auto-wraps)
+                            html = f'<span style="font-size:{block["font_size"]}pt; color:rgb{color_rgb};">{translated_text}</span>'
                             page.insert_htmlbox(
                                 block['bbox'],
                                 html,
                                 css="body { margin: 0; padding: 2px; }"
                             )
 
-            # Save the translated PDF
-            doc.save(output_path, garbage=3, deflate=True)
+            # Save the translated PDF with maximum compression
+            doc.save(
+                output_path,
+                garbage=4,        # Most aggressive garbage collection
+                deflate=True,     # Compress streams
+                clean=True,       # Remove duplicate objects
+                pretty=False,     # No pretty printing
+                no_new_id=True,   # Don't change file ID
+                linear=False      # No web optimization (smaller file)
+            )
             doc.close()
-            src_doc.close()
 
             print(f"\n[SUCCESS] Translated PDF saved to: {output_path}")
             return True
@@ -920,33 +916,30 @@ class DocumentTranslator:
 
                         if global_idx in translated_blocks:
                             translated_text = translated_blocks[global_idx]
-
-                            # Calculate if text is bold or italic from flags
-                            fontname = "helv"  # Default font
-                            if block['flags'] & 2**4:  # Bold
-                                fontname = "hebo"
-                            elif block['flags'] & 2**1:  # Italic
-                                fontname = "heti"
-
-                            # Convert color
                             color_rgb = self._int_to_rgb(block['color'])
 
-                            # Create HTML for better text fitting
+                            # Use htmlbox for reliable rendering (handles all languages and auto-wraps)
                             html = (
                                 f'<span style="font-size:{block["font_size"]}pt; '
                                 f'color:rgb{color_rgb}; '
                                 f'font-family: sans-serif;">{translated_text}</span>'
                             )
-
-                            # Insert text using htmlbox for better layout control
                             page.insert_htmlbox(
                                 block['bbox'],
                                 html,
                                 css="body { margin: 0; padding: 2px; line-height: 1.2; }"
                             )
 
-            # Optimize and save
-            doc.save(output_path, garbage=3, deflate=True, clean=True)
+            # Optimize and save with maximum compression
+            doc.save(
+                output_path,
+                garbage=4,        # Most aggressive garbage collection
+                deflate=True,     # Compress streams
+                clean=True,       # Remove duplicate objects
+                pretty=False,     # No pretty printing
+                no_new_id=True,   # Don't change file ID
+                linear=False      # No web optimization (smaller file)
+            )
             doc.close()
 
             print(f"\n[SUCCESS] Translated PDF (redaction method) saved to: {output_path}")
@@ -1264,28 +1257,15 @@ class DocumentTranslator:
 
 # CLI interface
 if __name__ == "__main__":
-    import argparse
 
-    parser = argparse.ArgumentParser(description='Translate documents using Google Gemini AI')
-    parser.add_argument('input', help='Input document path')
-    parser.add_argument('-o', '--output', help='Output document path')
-    parser.add_argument('-t', '--target', default='Spanish', help='Target language (default: Spanish)')
-    parser.add_argument('-s', '--source', default='auto', help='Source language (default: auto)')
-    parser.add_argument('-m', '--method', default='auto', choices=['auto', 'overlay', 'redaction'],
-                       help='PDF translation method (default: auto)')
-    parser.add_argument('-k', '--api-key', help='Google Gemini API key (optional if GEMINI_API_KEY env var is set)')
-
-    args = parser.parse_args()
 
     # Create translator
-    translator = DocumentTranslator(api_key=args.api_key)
+    translator = DocumentTranslator()
 
     # Translate document
     translator.translate_document(
-        input_path=args.input,
-        output_path=args.output,
-        target_language=args.target,
-        method=args.method
+        input_path="test.pdf",
+        target_language="Chinese"
     )
     
     # Example 2: Translate PowerPoint presentation
