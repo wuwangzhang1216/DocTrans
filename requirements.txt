@@ -1,19 +1,23 @@
-# Core OpenAI API (latest version as of September 2025)
-openai>=1.107.2
+# Core Google Generative AI (Gemini API)
+google-genai>=0.2.0
 
 # Document processing libraries
 python-pptx>=0.6.21      # PowerPoint file handling
 python-docx>=1.0.0       # Word document handling
-PyPDF2>=3.0.0           # PDF reading
-pdfplumber>=0.10.0      # Enhanced PDF text extraction
-reportlab>=4.0.0        # PDF creation for translated documents
+pymupdf>=1.23.0          # PyMuPDF for advanced PDF handling (import as 'fitz')
+pdfplumber>=0.10.0       # Enhanced PDF text extraction
+reportlab>=4.0.0         # PDF creation for translated documents
 
 # Optional but recommended dependencies
-chardet>=5.0.0          # Character encoding detection
-Pillow>=10.0.0          # Image processing (for documents with images)
+chardet>=5.0.0           # Character encoding detection
+Pillow>=10.0.0           # Image processing (for documents with images)
 
-# Development dependencies (optional)
-python-dotenv>=1.0.0    # For managing API keys in .env files
+# Environment and configuration
+python-dotenv>=1.0.0     # For managing API keys in .env files
 
-# Professional CLI interface
-rich>=13.7.0            # Beautiful terminal formatting and progress bars
+# Professional CLI interface (optional)
+rich>=13.7.0             # Beautiful terminal formatting and progress bars
+
+# Note: This project uses Google Gemini AI for translation
+# Get your API key from: https://ai.google.dev/
+# Set it in your .env file as: GEMINI_API_KEY=your_key_here

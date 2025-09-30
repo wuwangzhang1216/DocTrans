@@ -29,7 +29,33 @@ Thumbs.db
 
 # Test files
 test.pptx
+test.pdf
+test.md
 
 # Environment variables
 .env
 .env.local
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+
+# Next.js
+.next/
+out/
+.vercel
+
+# Claude Code
+.claude/
+
+# Upload and output directories
+translate-web-app/backend/uploads/
+translate-web-app/backend/outputs/
+translate-web-app/backend/public/
+
+# Redis test file
+test-redis.js

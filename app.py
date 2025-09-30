@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 DocTrans CLI - Professional Document Translator
-A beautiful command-line interface for translating documents using OpenAI API.
+A beautiful command-line interface for translating documents using OpenRouter API.
 """
 
 import os
@@ -94,7 +94,7 @@ class ModernTranslatorCLI:
 ║     ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ║
 ║                                                                  ║
 ║               Professional Document Translator v2.0              ║
-║                     Powered by OpenAI GPT-5                      ║
+║                    Powered by OpenRouter AI                      ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
         """
@@ -114,15 +114,18 @@ class ModernTranslatorCLI:
         if args.api_key:
             api_key = args.api_key
             source = "command line"
+        elif 'OPENROUTER_API_KEY' in os.environ:
+            api_key = os.environ['OPENROUTER_API_KEY']
+            source = "environment variable"
         elif 'OPENAI_API_KEY' in os.environ:
             api_key = os.environ['OPENAI_API_KEY']
-            source = "environment variable"
+            source = "environment variable (OPENAI_API_KEY)"
         elif self.config.has_option('api', 'key'):
             api_key = self.config.get('api', 'key')
             source = "config file"
         else:
             console.print(Panel(
-                "[yellow]No API key found. Please enter your OpenAI API key:[/yellow]",
+                "[yellow]No API key found. Please enter your OpenRouter API key:[/yellow]",
                 title="[bold]API Configuration[/bold]",
                 border_style="yellow"
             ))
@@ -562,7 +565,7 @@ class ModernTranslatorCLI:
             if self.config.has_option('defaults', 'model'):
                 config_table.add_row("🤖 Default Model", self.config.get('defaults', 'model'))
             else:
-                config_table.add_row("🤖 Default Model", "gpt-4.1-mini [dim](default)[/dim]")
+                config_table.add_row("🤖 Default Model", "google/gemini-2.5-flash-lite-preview-09-2025 [dim](default)[/dim]")
 
             # Workers
             if self.config.has_option('defaults', 'workers'):
@@ -580,7 +583,7 @@ class ModernTranslatorCLI:
         """Main entry point for the CLI application."""
         parser = argparse.ArgumentParser(
             prog='doctrans',
-            description='Professional document translator using OpenAI API',
+            description='Professional document translator using OpenRouter API',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
@@ -597,7 +600,7 @@ Examples:
                           help='Enable verbose output')
         parser.add_argument('-q', '--quiet', action='store_true',
                           help='Suppress non-error output')
-        parser.add_argument('--api-key', help='OpenAI API key (overrides config/env)')
+        parser.add_argument('--api-key', help='OpenRouter API key (overrides config/env)')
 
         # Subcommands
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -610,8 +613,8 @@ Examples:
                                      help='Target language (e.g., Chinese, zh)')
         translate_parser.add_argument('-o', '--output',
                                      help='Output file path (optional)')
-        translate_parser.add_argument('-m', '--model', default='gpt-4.1-mini',
-                                     help='OpenAI model to use (default: gpt-4.1-mini)')
+        translate_parser.add_argument('-m', '--model', default='gemini-2.0-flash-lite',
+                                     help='Model to use (default: gemini-2.0-flash-lite)')
         translate_parser.add_argument('-w', '--workers', type=int, default=16,
                                      help='Max parallel workers (default: 16)')
         translate_parser.add_argument('--pdf-method', choices=['auto', 'overlay', 'redaction'],
@@ -627,8 +630,8 @@ Examples:
                                  help='Target language (e.g., Chinese, zh)')
         batch_parser.add_argument('-t', '--types',
                                  help='File types to process (comma-separated, e.g., "pptx,docx")')
-        batch_parser.add_argument('-m', '--model', default='gpt-4.1-mini',
-                                 help='OpenAI model to use (default: gpt-4.1-mini)')
+        batch_parser.add_argument('-m', '--model', default='gemini-2.0-flash-lite',
+                                 help='Model to use (default: gemini-2.0-flash-lite)')
         batch_parser.add_argument('-w', '--workers', type=int, default=16,
                                  help='Max parallel workers per file (default: 16)')
 

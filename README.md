@@ -1,44 +1,59 @@
-# DocTrans CLI - Document Translator
+# Document Translation Suite
 
-A powerful command-line tool for translating documents using OpenAI's API. Supports multiple file formats including PDF, Word, PowerPoint, Excel, and more.
+A powerful document translation system powered by Google Gemini AI, with both CLI and Web Application support. Features dynamic parallel processing with up to 256 workers for high-performance translation.
 
 ## Features
 
-- **Multiple Format Support**: PDF, DOCX, PPTX, XLSX, TXT, MD, HTML
-- **Batch Processing**: Translate entire folders of documents
-- **40+ Languages**: Support for major world languages
-- **Smart Formatting**: Preserves document structure and formatting
-- **Progress Tracking**: Real-time progress bars and status updates
-- **Standalone Binary**: No Python installation required
+### Core Features
+- 📄 **Multiple Format Support**: PDF, DOCX, PPTX, TXT, Markdown
+- 🌍 **Powered by Google Gemini**: Fast and accurate translation with gemini-2.5-flash-lite model
+- ⚡ **High Performance**: Dynamic parallel processing with up to 256 workers
+- 🧠 **Smart Allocation**: Up to 16 pages/slides concurrently, 64 workers per page
+- 🔄 **Batch Processing**: Translate entire folders of documents
+- 📊 **Format Preservation**: Maintains document structure, formatting, and layout
+- 🎯 **Markdown Smart**: Detects and protects code blocks during translation
+
+### Two Usage Modes
+1. **CLI Tool** (`translate_doc.py`): Direct Python script for quick translations
+2. **Web Application**: Full-featured web UI with Redis-backed job queue and real-time progress tracking
 
 ## Installation
 
-### Quick Install (Recommended)
+### Prerequisites
+- Python 3.9+
+- Node.js 18+ (for web application)
+- Google Gemini API Key (get it from [https://ai.google.dev/](https://ai.google.dev/))
 
-1. Clone the repository:
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/wuwangzhang1216/translate-doc.git
 cd translate-doc
 ```
 
-2. Run the installation script:
+### 2. Set Up Environment Variables
+
+Copy the example file and configure:
 ```bash
-chmod +x install.sh
-./install.sh
+cp .env.example .env
 ```
 
-This will automatically:
-- Check for and remove conflicting packages (like obsolete pathlib)
-- Install all Python dependencies
-- Build the standalone executable with PyInstaller
-- Install the `doctrans` command to `~/.local/bin`
-- Add the directory to your PATH (if needed)
-- Make the command available system-wide
-
-3. Restart your terminal or run:
-```bash
-source ~/.bash_profile  # or ~/.zshrc for zsh users
+Edit `.env` with your credentials:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+REDIS_URL=rediss://your_redis_url  # Only needed for web app
 ```
+
+### 3. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+This installs:
+- `google-genai` - Google Gemini AI SDK
+- `pymupdf` - Advanced PDF processing
+- `python-pptx`, `python-docx` - Office document support
+- `reportlab` - PDF generation
+- Other supporting libraries
 
 ### Installation Options
 
@@ -63,13 +78,13 @@ The install script supports several options:
 ### System Requirements
 
 - **macOS**: 10.15 or later
-- **OpenAI API Key**: Required for translation services
+- **OpenRouter API Key**: Required for translation services (supports multiple AI models)
 
 ## Configuration
 
 ### Setting up your API Key
 
-You have three options to provide your OpenAI API key:
+You have three options to provide your OpenRouter API key:
 
 1. **Using the config command** (Recommended):
 ```bash
@@ -78,7 +93,9 @@ doctrans config --set-key sk-your-api-key-here
 
 2. **Environment variable**:
 ```bash
-export OPENAI_API_KEY="sk-your-api-key-here"
+export OPENROUTER_API_KEY="sk-or-your-api-key-here"
+# Or use OPENAI_API_KEY for compatibility
+export OPENAI_API_KEY="sk-or-your-api-key-here"
 ```
 
 3. **Command-line flag**:
@@ -162,7 +179,7 @@ doctrans translate README.md -l French -o LISEZ-MOI.md
 
 - `-l, --language`: Target language (required)
 - `-o, --output`: Custom output file path
-- `--model`: GPT model to use (default: gpt-4.1-mini)
+- `--model`: AI model to use (default: google/gemini-2.5-flash-lite-preview-09-2025)
 - `--preserve-formatting`: Maintain original formatting
 
 ### Batch Command Options
@@ -207,7 +224,7 @@ doctrans config --show-key
 ```
 
 2. Ensure it starts with `sk-`
-3. Check your OpenAI account has credits
+3. Check your OpenRouter account has credits
 
 ### Permission Denied
 
@@ -359,7 +376,7 @@ translate-doc/
 ## Privacy & Security
 
 - API keys are stored locally in `~/.doctranslator/config.json`
-- Documents are processed locally and sent to OpenAI API
+- Documents are processed locally and sent to OpenRouter API
 - No documents are stored or cached by the tool
 - All translations happen over secure HTTPS
 
@@ -376,10 +393,10 @@ For issues, questions, or contributions:
 ## Credits
 
 Built with:
-- OpenAI GPT API for translations
+- OpenRouter API for translations (supporting multiple AI models including Google Gemini)
 - PyInstaller for standalone packaging
 - Python libraries: pypdf2, python-docx, python-pptx, openpyxl
 
 ---
 
-**Note**: This tool requires an active OpenAI API key with available credits. Translation quality depends on the selected GPT model and API capabilities.
+**Note**: This tool requires an active OpenRouter API key with available credits. Translation quality depends on the selected AI model and API capabilities. OpenRouter provides access to various models including Google Gemini, Claude, GPT-4, and more.
