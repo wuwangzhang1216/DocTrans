@@ -12,12 +12,16 @@ RUN apt-get update && \
 
 # Install Python dependencies
 RUN pip install --no-cache-dir \
-    openai \
-    pymupdf \
-    python-pptx \
-    python-docx \
-    pdfplumber \
-    reportlab
+    google-genai>=0.2.0 \
+    pymupdf>=1.23.0 \
+    python-pptx>=0.6.21 \
+    python-docx>=1.0.0 \
+    pdfplumber>=0.10.0 \
+    reportlab>=4.0.0 \
+    python-dotenv>=1.0.0 \
+    chardet>=5.0.0 \
+    Pillow>=10.0.0 \
+    rich>=13.7.0
 
 # Copy package files for Node.js
 COPY package*.json ./
