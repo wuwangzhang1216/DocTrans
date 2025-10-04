@@ -3,20 +3,12 @@ runtime: python3
 build:
   commands:
     build:
-      - pip install google-genai>=0.2.0 pymupdf>=1.23.0 python-pptx>=0.6.21 python-docx>=1.0.0 pdfplumber>=0.10.0 reportlab>=4.0.0 python-dotenv>=1.0.0 chardet>=5.0.0 Pillow>=10.0.0 rich>=13.7.0
-      - npm ci --only=production
+      - pip install google-genai pymupdf python-pptx python-docx pdfplumber reportlab python-dotenv chardet Pillow rich
+      - curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      - apt-get install -y nodejs
+      - npm install --production
 run:
-  runtime-version: 3.9
   command: node worker.js
   env:
     - name: NODE_ENV
       value: production
-    - name: REDIS_URL
-    - name: REDIS_HOST
-    - name: REDIS_PORT
-    - name: REDIS_PASSWORD
-    - name: GEMINI_API_KEY
-    - name: WORKER_CONCURRENCY
-      value: "5"
-    - name: JOB_TIMEOUT
-      value: "600000"

@@ -3,25 +3,11 @@ runtime: nodejs18
 build:
   commands:
     build:
-      - npm ci --only=production
+      - npm install --production
 run:
-  runtime-version: 18
   command: node server.js
   network:
     port: 3001
-    env: PORT
   env:
     - name: NODE_ENV
       value: production
-    - name: REDIS_URL
-    - name: REDIS_HOST
-    - name: REDIS_PORT
-    - name: REDIS_PASSWORD
-    - name: GEMINI_API_KEY
-    - name: MAX_FILE_SIZE
-      value: "10485760"
-    - name: WORKER_CONCURRENCY
-      value: "5"
-    - name: JOB_TIMEOUT
-      value: "600000"
-    - name: FRONTEND_URL
