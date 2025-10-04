@@ -1,0 +1,16 @@
+{
+  "CodeRepository": {
+    "RepositoryUrl": "https://github.com/wuwangzhang1216/DocTrans",
+    "SourceCodeVersion": {
+      "Type": "BRANCH",
+      "Value": "main"
+    },
+    "CodeConfiguration": {
+      "ConfigurationSource": "API",
+      "CodeConfigurationValues": {
+        "Runtime": "NODEJS_18",
+        "BuildCommand": "cd translate-web-app/backend && npm install --production",
+        "StartCommand": "cd translate-web-app/backend && node server.js",
+        "Port": "3001",
+        "RuntimeEnvironmentVariables": {
+          "GEMINI_API_KEY": "AIzaSyBNUM6w
