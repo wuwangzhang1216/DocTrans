@@ -81,20 +81,11 @@ if (!redisUrl) {
 
 const redisConfig = {
   redis: {
-    port: process.env.REDIS_PORT || 6379,
+    port: parseInt(process.env.REDIS_PORT) || 6379,
     host: process.env.REDIS_HOST,
     password: process.env.REDIS_PASSWORD,
     tls: {
       rejectUnauthorized: false
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: false,
-    retryStrategy: (times) => {
-      if (times > 3) {
-        console.error('Redis connection failed after 3 retries');
-        return null;
-      }
-      return Math.min(times * 100, 3000);
     }
   },
   defaultJobOptions: {
