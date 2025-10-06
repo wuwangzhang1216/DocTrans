@@ -69,134 +69,6 @@ class DocumentTranslator:
         self.max_concurrent_pages = 16
         self.max_workers_per_page = 64
 
-        # Compile regex patterns for math/LaTeX detection
-        self._compile_math_patterns()
-
-    def _compile_math_patterns(self):
-        """Compile regex patterns for detecting LaTeX and mathematical expressions."""
-        # LaTeX display math: $$...$$ or \[...\]
-        self.display_math_patterns = [
-            re.compile(r'\$\$.*?\$\$', re.DOTALL),  # $$...$$
-            re.compile(r'\\\[.*?\\\]', re.DOTALL),   # \[...\]
-        ]
-
-        # LaTeX inline math: $...$ or \(...\)
-        self.inline_math_patterns = [
-            re.compile(r'(?<!\$)\$(?!\$)([^\$]+?)\$(?!\$)'),  # $...$ (not $$)
-            re.compile(r'\\\(.*?\\\)'),  # \(...\)
-        ]
-
-        # Common LaTeX commands and environments
-        self.latex_command_patterns = [
-            re.compile(r'\\[a-zA-Z]+\{[^}]*\}'),  # \command{...}
-            re.compile(r'\\begin\{[^}]+\}.*?\\end\{[^}]+\}', re.DOTALL),  # \begin{env}...\end{env}
-            re.compile(r'\\(?:frac|sqrt|sum|int|lim|prod|infty|alpha|beta|gamma|delta|theta|lambda|sigma|omega|Delta|Gamma|Theta|Lambda|Sigma|Omega)\b'),  # Common math commands
-        ]
-
-        # Mathematical symbols and operators
-        self.math_symbol_patterns = [
-            re.compile(r'[∫∑∏∂∇∆√∞≈≠≤≥±×÷∈∉⊂⊃⊆⊇∪∩∧∨¬∀∃→←↔⇒⇐⇔]'),  # Unicode math symbols
-            re.compile(r'[αβγδεζηθικλμνξοπρστυφχψω]'),  # Greek letters
-            re.compile(r'[ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ]'),  # Capital Greek letters
-        ]
-
-    def _protect_math_expressions(self, text: str) -> Tuple[str, Dict[str, str]]:
-        """
-        Replace math expressions with placeholders to prevent translation.
-
-        Args:
-            text: Text containing potential math expressions
-
-        Returns:
-            Tuple of (protected_text, placeholder_map)
-            - protected_text: Text with math expressions replaced by placeholders
-            - placeholder_map: Dictionary mapping placeholders to original expressions
-        """
-        if not text or not text.strip():
-            return text, {}
-
-        protected_text = text
-        placeholder_map = {}
-        placeholder_counter = 0
-
-        # Protect display math first (highest priority)
-        for pattern in self.display_math_patterns:
-            matches = pattern.finditer(protected_text)
-            for match in matches:
-                math_expr = match.group(0)
-                placeholder = f"__MATH_DISPLAY_{placeholder_counter}__"
-                placeholder_map[placeholder] = math_expr
-                protected_text = protected_text.replace(math_expr, placeholder, 1)
-                placeholder_counter += 1
-
-        # Protect inline math
-        for pattern in self.inline_math_patterns:
-            matches = pattern.finditer(protected_text)
-            for match in matches:
-                math_expr = match.group(0)
-                placeholder = f"__MATH_INLINE_{placeholder_counter}__"
-                placeholder_map[placeholder] = math_expr
-                protected_text = protected_text.replace(math_expr, placeholder, 1)
-                placeholder_counter += 1
-
-        # Protect LaTeX commands and environments
-        for pattern in self.latex_command_patterns:
-            matches = pattern.finditer(protected_text)
-            for match in matches:
-                latex_expr = match.group(0)
-                # Skip if already protected
-                if latex_expr.startswith('__MATH_'):
-                    continue
-                placeholder = f"__LATEX_CMD_{placeholder_counter}__"
-                placeholder_map[placeholder] = latex_expr
-                protected_text = protected_text.replace(latex_expr, placeholder, 1)
-                placeholder_counter += 1
-
-        # Protect mathematical symbols (only if they appear in mathematical context)
-        # We're conservative here - only protect if surrounded by numbers or other math
-        for pattern in self.math_symbol_patterns:
-            matches = pattern.finditer(protected_text)
-            for match in matches:
-                symbol = match.group(0)
-                start = match.start()
-                end = match.end()
-
-                # Check context: is it surrounded by numbers, operators, or other math?
-                before = protected_text[max(0, start-1):start] if start > 0 else ''
-                after = protected_text[end:min(len(protected_text), end+1)] if end < len(protected_text) else ''
-
-                # Protect if in mathematical context
-                if (before and (before.isdigit() or before in '+-*/=()[]{}.,<> ')) or \
-                   (after and (after.isdigit() or after in '+-*/=()[]{}.,<> ')):
-                    placeholder = f"__MATH_SYM_{placeholder_counter}__"
-                    placeholder_map[placeholder] = symbol
-                    protected_text = protected_text[:start] + placeholder + protected_text[end:]
-                    placeholder_counter += 1
-
-        return protected_text, placeholder_map
-
-    def _restore_math_expressions(self, text: str, placeholder_map: Dict[str, str]) -> str:
-        """
-        Restore original math expressions from placeholders.
-
-        Args:
-            text: Translated text with placeholders
-            placeholder_map: Dictionary mapping placeholders to original expressions
-
-        Returns:
-            Text with math expressions restored
-        """
-        if not placeholder_map:
-            return text
-
-        restored_text = text
-
-        # Restore in reverse order to handle nested cases correctly
-        for placeholder, original in placeholder_map.items():
-            restored_text = restored_text.replace(placeholder, original)
-
-        return restored_text
-
     def _calculate_workers_per_page(self, total_pages: int) -> tuple:
         """
         Calculate dynamic worker allocation based on total pages.
@@ -236,19 +108,15 @@ class DocumentTranslator:
             return text
 
         try:
-            # Protect math expressions before translation
-            protected_text, math_map = self._protect_math_expressions(text)
-
             prompt = (
                 f"You are a professional technical translator. Translate into {target_language} with precise domain terminology and preserve formatting exactly.\n\n"
                 f"Translate to {target_language} with native, accurate, technical wording.\n"
                 "Strictly preserve original formatting and layout: line breaks, indentation, spacing, bullet/numbered lists (markers and levels), tables, and code blocks.\n"
                 "Do not add explanations. Do not change capitalization of proper nouns.\n"
                 "Do not translate code, CLI commands, file paths, API names, or placeholders like {var}, <tag>, {{braces}}, [1], %s, or ${VAR}.\n"
-                "CRITICAL: Do NOT translate LaTeX expressions, mathematical formulas, equations, or any placeholders starting with __MATH_ or __LATEX_. Keep them EXACTLY as they appear.\n"
                 "Keep URLs and IDs unchanged.\n\n"
                 "Text to translate:\n"
-                f"{protected_text}"
+                f"{text}"
             )
 
             response = self.client.models.generate_content(
@@ -256,11 +124,7 @@ class DocumentTranslator:
                 contents=prompt
             )
 
-            # Restore math expressions after translation
-            translated_text = response.text.strip()
-            final_text = self._restore_math_expressions(translated_text, math_map)
-
-            return final_text
+            return response.text.strip()
 
         except Exception as e:
             print(f"Translation error: {str(e)}")
@@ -765,19 +629,15 @@ class DocumentTranslator:
                 os.environ['GEMINI_API_KEY'] = api_key
             client = genai.Client()
 
-            # Protect math expressions before translation
-            protected_text, math_map = self._protect_math_expressions(block_text)
-
             prompt = (
                 f"You are a professional technical translator. Translate into {target_language} with precise domain terminology and preserve formatting exactly.\n\n"
                 f"Translate to {target_language} with native, accurate, technical wording.\n"
                 "Strictly preserve original formatting and layout: line breaks, indentation, spacing, bullet/numbered lists (markers and levels), tables, and code blocks.\n"
                 "Do not add explanations. Do not change capitalization of proper nouns.\n"
                 "Do not translate code, CLI commands, file paths, API names, or placeholders like {var}, <tag>, {{braces}}, [1], %s, or ${VAR}.\n"
-                "CRITICAL: Do NOT translate LaTeX expressions, mathematical formulas, equations, or any placeholders starting with __MATH_ or __LATEX_. Keep them EXACTLY as they appear.\n"
                 "Keep URLs and IDs unchanged.\n\n"
                 "Text to translate:\n"
-                f"{protected_text}"
+                f"{block_text}"
             )
 
             response = client.models.generate_content(
@@ -785,11 +645,7 @@ class DocumentTranslator:
                 contents=prompt
             )
 
-            # Restore math expressions after translation
-            translated_text = response.text.strip()
-            final_text = self._restore_math_expressions(translated_text, math_map)
-
-            return {'block_idx': block_idx, 'translated_text': final_text}
+            return {'block_idx': block_idx, 'translated_text': response.text.strip()}
 
         except Exception as e:
             print(f"Translation error on block {block_idx}: {str(e)}")
@@ -1408,7 +1264,7 @@ if __name__ == "__main__":
 
     # Translate document
     translator.translate_document(
-        input_path="ex06-questions.pdf",
+        input_path="test.pdf",
         target_language="Chinese"
     )
     
