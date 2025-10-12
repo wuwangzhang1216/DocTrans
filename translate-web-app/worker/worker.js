@@ -89,7 +89,7 @@ translationQueue.process('translate-document', WORKER_CONCURRENCY, async (job) =
     // Perform translation
     console.log(`Translating ${originalName} to ${targetLanguage}...`);
 
-    await translator.translateDocument(
+    const translationResult = await translator.translateDocument(
       absoluteFilePath,
       outputPath,
       targetLanguage,
@@ -101,8 +101,25 @@ translationQueue.process('translate-document', WORKER_CONCURRENCY, async (job) =
       }
     );
 
+    // Use actual output path from Python (for PDFs) or the expected path
+    let actualOutputPath = outputPath;
+    let actualOutputFileName = outputFileName;
+
+    if (translationResult.paths) {
+      if (translationResult.paths.mono) {
+        // PDF translation returns mono and dual paths
+        actualOutputPath = translationResult.paths.mono;
+        actualOutputFileName = path.basename(actualOutputPath);
+        console.log(`PDF translation complete. Mono: ${actualOutputPath}`);
+        console.log(`Dual version: ${translationResult.paths.dual}`);
+      } else if (translationResult.paths.output) {
+        actualOutputPath = translationResult.paths.output;
+        actualOutputFileName = path.basename(actualOutputPath);
+      }
+    }
+
     // Verify output file exists
-    await fs.access(outputPath);
+    await fs.access(actualOutputPath);
 
     // Report completion
     await job.progress(95);
@@ -119,14 +136,22 @@ translationQueue.process('translate-document', WORKER_CONCURRENCY, async (job) =
 
     console.log(`Job ${job.id} completed successfully`);
 
-    return {
+    const result = {
       success: true,
-      outputFile: outputFileName,
-      outputPath: outputPath,
+      outputFile: actualOutputFileName,
+      outputPath: actualOutputPath,
       originalName: originalName,
       targetLanguage: targetLanguage,
       completedAt: new Date().toISOString()
     };
+
+    // Add dual path for PDFs if available
+    if (translationResult.paths && translationResult.paths.dual) {
+      result.dualOutputPath = translationResult.paths.dual;
+      result.dualOutputFile = path.basename(translationResult.paths.dual);
+    }
+
+    return result;
 
   } catch (error) {
     console.error(`Job ${job.id} failed:`, error);

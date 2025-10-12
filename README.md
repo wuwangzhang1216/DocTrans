@@ -6,7 +6,7 @@ A powerful document translation system powered by Google Gemini AI, with both CL
 
 ### Core Features
 - 📄 **Multiple Format Support**: PDF, DOCX, PPTX, TXT, Markdown
-- 🌍 **Powered by Google Gemini**: Fast and accurate translation with gemini-2.5-flash-lite model
+- 🌍 **Powered by Google Gemini**: Fast and accurate translation with gemini-2.0-flash-lite model
 - ⚡ **High Performance**: Dynamic parallel processing with up to 256 workers
 - 🧠 **Smart Allocation**: Up to 16 pages/slides concurrently, 64 workers per page
 - 🔄 **Batch Processing**: Translate entire folders of documents
@@ -179,7 +179,7 @@ doctrans translate README.md -l French -o LISEZ-MOI.md
 
 - `-l, --language`: Target language (required)
 - `-o, --output`: Custom output file path
-- `--model`: AI model to use (default: google/gemini-2.5-flash-lite-preview-09-2025)
+- `--model`: AI model to use (default: google/gemini-2.0-flash-lite)
 - `--preserve-formatting`: Maintain original formatting
 
 ### Batch Command Options

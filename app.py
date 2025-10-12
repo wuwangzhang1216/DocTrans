@@ -33,10 +33,11 @@ from rich.rule import Rule
 
 # Import the translator module
 try:
-    from translate_doc import DocumentTranslator
+    from translators import DocumentTranslator
 except ImportError:
     console = Console()
-    console.print("[red]✗ Error:[/red] translate_doc.py not found in the current directory.")
+    console.print("[red]✗ Error:[/red] translators module not found.")
+    console.print("[yellow]Please ensure the translators package is installed.[/yellow]")
     sys.exit(1)
 
 # Initialize Rich console
@@ -94,7 +95,7 @@ class ModernTranslatorCLI:
 ║     ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ║
 ║                                                                  ║
 ║               Professional Document Translator v2.0              ║
-║                    Powered by OpenRouter AI                      ║
+║                    Powered by Google Gemini AI                   ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
         """
@@ -114,10 +115,11 @@ class ModernTranslatorCLI:
         if args.api_key:
             api_key = args.api_key
             source = "command line"
-        elif 'OPENROUTER_API_KEY' in os.environ:
-            api_key = os.environ['OPENROUTER_API_KEY']
-            source = "environment variable"
+        elif 'GEMINI_API_KEY' in os.environ:
+            api_key = os.environ['GEMINI_API_KEY']
+            source = "environment variable (GEMINI_API_KEY)"
         elif 'OPENAI_API_KEY' in os.environ:
+            # Backward compatibility
             api_key = os.environ['OPENAI_API_KEY']
             source = "environment variable (OPENAI_API_KEY)"
         elif self.config.has_option('api', 'key'):
@@ -125,12 +127,13 @@ class ModernTranslatorCLI:
             source = "config file"
         else:
             console.print(Panel(
-                "[yellow]No API key found. Please enter your OpenRouter API key:[/yellow]",
+                "[yellow]No API key found. Please enter your Gemini API key:[/yellow]\n"
+                "[dim]Get your key from: https://ai.google.dev/[/dim]",
                 title="[bold]API Configuration[/bold]",
                 border_style="yellow"
             ))
 
-            api_key = Prompt.ask("[cyan]API Key[/cyan]", password=True)
+            api_key = Prompt.ask("[cyan]Gemini API Key[/cyan]", password=True)
 
             # Ask if user wants to save it
             if Confirm.ask("\n[cyan]Save API key for future use?[/cyan]"):
@@ -336,7 +339,7 @@ class ModernTranslatorCLI:
         if args.types:
             file_types = [f".{t.strip('.')}" for t in args.types.split(',')]
         else:
-            file_types = ['.pptx', '.pdf', '.docx', '.txt']
+            file_types = ['.pptx', '.pdf', '.docx', '.txt', '.md', '.markdown']
 
         # Count files to process
         files_to_process = []
@@ -565,13 +568,13 @@ class ModernTranslatorCLI:
             if self.config.has_option('defaults', 'model'):
                 config_table.add_row("🤖 Default Model", self.config.get('defaults', 'model'))
             else:
-                config_table.add_row("🤖 Default Model", "google/gemini-2.5-flash-lite-preview-09-2025 [dim](default)[/dim]")
+                config_table.add_row("🤖 Default Model", "google/gemini-2.0-flash-lite [dim](default)[/dim]")
 
             # Workers
             if self.config.has_option('defaults', 'workers'):
                 config_table.add_row("⚡ Default Workers", self.config.get('defaults', 'workers'))
             else:
-                config_table.add_row("⚡ Default Workers", "16 [dim](default)[/dim]")
+                config_table.add_row("⚡ Default Workers", "256 [dim](default)[/dim]")
 
             config_table.add_row("📁 Config File", f"[dim]{self.config_file}[/dim]")
 
@@ -583,7 +586,7 @@ class ModernTranslatorCLI:
         """Main entry point for the CLI application."""
         parser = argparse.ArgumentParser(
             prog='doctrans',
-            description='Professional document translator using OpenRouter API',
+            description='Professional document translator using Google Gemini AI',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
@@ -600,7 +603,7 @@ Examples:
                           help='Enable verbose output')
         parser.add_argument('-q', '--quiet', action='store_true',
                           help='Suppress non-error output')
-        parser.add_argument('--api-key', help='OpenRouter API key (overrides config/env)')
+        parser.add_argument('--api-key', help='Gemini API key (overrides config/env)')
 
         # Subcommands
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -615,8 +618,8 @@ Examples:
                                      help='Output file path (optional)')
         translate_parser.add_argument('-m', '--model', default='gemini-2.0-flash-lite',
                                      help='Model to use (default: gemini-2.0-flash-lite)')
-        translate_parser.add_argument('-w', '--workers', type=int, default=16,
-                                     help='Max parallel workers (default: 16)')
+        translate_parser.add_argument('-w', '--workers', type=int, default=256,
+                                     help='Max parallel workers (default: 256)')
         translate_parser.add_argument('--pdf-method', choices=['auto', 'overlay', 'redaction'],
                                      default='auto',
                                      help='PDF translation method (default: auto)')
@@ -632,8 +635,8 @@ Examples:
                                  help='File types to process (comma-separated, e.g., "pptx,docx")')
         batch_parser.add_argument('-m', '--model', default='gemini-2.0-flash-lite',
                                  help='Model to use (default: gemini-2.0-flash-lite)')
-        batch_parser.add_argument('-w', '--workers', type=int, default=16,
-                                 help='Max parallel workers per file (default: 16)')
+        batch_parser.add_argument('-w', '--workers', type=int, default=256,
+                                 help='Max parallel workers per file (default: 256)')
 
         # Languages command
         languages_parser = subparsers.add_parser('languages',

@@ -233,7 +233,7 @@ docker-compose logs worker
    - **Markdown**: Smart code block detection, parallel text block translation
 2. **Redis Queue**: Efficient job distribution across multiple workers
 3. **WebSocket**: Real-time updates without polling overhead
-4. **Google Gemini AI**: Fast and accurate translation with gemini-2.5-flash-lite-preview model
+4. **Google Gemini AI**: Fast and accurate translation with gemini-2.0-flash-lite-preview model
 
 ## Contributing
 

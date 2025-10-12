@@ -5,6 +5,8 @@ import os
 import sys
 import subprocess
 import time
+import signal
+import atexit
 from pathlib import Path
 
 def check_env_file():
@@ -50,6 +52,26 @@ def install_dependencies():
             return False
     return True
 
+def kill_process_tree(pid):
+    """Kill a process and all its children"""
+    if sys.platform == "win32":
+        # Windows: Use taskkill to kill process tree
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+        except Exception:
+            pass
+    else:
+        # Unix-like systems: Send SIGTERM to process group
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except Exception:
+            pass
+
 def start_services():
     """Start all services in separate processes"""
     processes = []
@@ -66,32 +88,67 @@ def start_services():
         print(f"Starting {name}...")
         try:
             if sys.platform == "win32":
-                # Windows: Use CREATE_NEW_CONSOLE flag
+                # Windows: Don't use CREATE_NEW_CONSOLE, keep in same console
                 process = subprocess.Popen(
                     command,
                     cwd=directory,
                     shell=True,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
                 )
             else:
-                # Unix-like systems
+                # Unix-like systems: Create new process group
                 process = subprocess.Popen(
                     command.split(),
-                    cwd=directory
+                    cwd=directory,
+                    start_new_session=True
                 )
             processes.append((name, process))
             time.sleep(2)  # Give each service time to start
         except Exception as e:
             print(f"Failed to start {name}: {e}")
             # Terminate already started processes
-            for _, p in processes:
-                p.terminate()
+            for pname, p in processes:
+                print(f"Cleaning up {pname}...")
+                kill_process_tree(p.pid)
             return None
 
     return processes
 
+def cleanup_processes(processes):
+    """Clean up all running processes"""
+    if not processes:
+        return
+
+    print("\n\nStopping all services...")
+    for name, process in processes:
+        if process.poll() is None:  # Process is still running
+            print(f"Stopping {name}...")
+            kill_process_tree(process.pid)
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                # Force kill if still running
+                try:
+                    process.kill()
+                    process.wait(timeout=2)
+                except Exception:
+                    pass
+    print("All services stopped.")
+
 def main():
     """Main function to start all services"""
+    processes = []
+
+    def signal_handler(signum, frame):
+        """Handle Ctrl+C signal"""
+        cleanup_processes(processes)
+        sys.exit(0)
+
+    # Register signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    if sys.platform == "win32":
+        signal.signal(signal.SIGBREAK, signal_handler)
+
     # Check environment file
     if not check_env_file():
         sys.exit(1)
@@ -105,6 +162,9 @@ def main():
 
     if not processes:
         sys.exit(1)
+
+    # Register cleanup to run on exit
+    atexit.register(cleanup_processes, processes)
 
     print("\n" + "="*50)
     print("Services started successfully!")
@@ -124,16 +184,10 @@ def main():
             for name, process in processes:
                 if process.poll() is not None:
                     print(f"\nWarning: {name} has stopped unexpectedly!")
+                    cleanup_processes(processes)
+                    sys.exit(1)
     except KeyboardInterrupt:
-        print("\n\nStopping all services...")
-        for name, process in processes:
-            print(f"Stopping {name}...")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        print("All services stopped.")
+        cleanup_processes(processes)
 
 if __name__ == "__main__":
     main()

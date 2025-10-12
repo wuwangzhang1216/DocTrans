@@ -41,17 +41,19 @@ build_executable() {
     echo -e "${YELLOW}Creating standalone executable with PyInstaller...${NC}"
     pyinstaller --onefile \
         --name DocTranslator \
-        --add-data "translate_doc.py:." \
-        --hidden-import openai \
-        --hidden-import tiktoken \
+        --add-data "translators:translators" \
+        --hidden-import google.genai \
+        --hidden-import pydantic \
         --hidden-import pymupdf \
+        --hidden-import fitz \
         --hidden-import docx \
-        --hidden-import openpyxl \
         --hidden-import pptx \
-        --hidden-import markdown \
-        --hidden-import bs4 \
-        --hidden-import aiohttp \
-        --hidden-import certifi \
+        --hidden-import pdfplumber \
+        --hidden-import reportlab \
+        --hidden-import PIL \
+        --hidden-import chardet \
+        --hidden-import dotenv \
+        --hidden-import rich \
         --clean \
         --noconfirm \
         app.py
@@ -174,7 +176,7 @@ echo -e "  ${GREEN}doctrans${NC} --help                    Show help"
 echo -e "  ${GREEN}doctrans${NC} languages                 List supported languages"
 echo -e "  ${GREEN}doctrans${NC} translate file.pdf -l zh  Translate to Chinese"
 echo -e "  ${GREEN}doctrans${NC} batch ./in ./out -l es    Batch translate to Spanish"
-echo -e "  ${GREEN}doctrans${NC} config --set-key sk-...   Set OpenAI API key"
+echo -e "  ${GREEN}doctrans${NC} config --set-key AIza...  Set Gemini API key"
 echo ""
 
 # Test if it works immediately (if PATH is already set)

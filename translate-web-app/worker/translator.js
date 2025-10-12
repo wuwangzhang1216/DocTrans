@@ -7,7 +7,8 @@ const execPromise = promisify(exec);
 
 class DocumentTranslator {
   constructor() {
-    this.pythonScriptPath = path.join(__dirname, '../../translate_doc.py');
+    // Use the new modular translators package
+    this.projectRoot = path.join(__dirname, '../..');
   }
 
   async translateDocument(inputPath, outputPath, targetLanguage, apiKey, onProgress) {
@@ -18,22 +19,30 @@ class DocumentTranslator {
       const pythonScript = `
 import sys
 import os
-sys.path.insert(0, '${path.dirname(this.pythonScriptPath).replace(/\\/g, '\\\\')}')
+import json
+sys.path.insert(0, '${this.projectRoot.replace(/\\/g, '\\\\')}')
 
-from translate_doc import DocumentTranslator
+from translators import DocumentTranslator
 
 # Initialize translator with dynamic worker allocation (256 max workers, up to 16 concurrent pages, 64 workers per page)
-translator = DocumentTranslator(api_key="${apiKey}", model="gemini-2.5-flash-lite-preview-09-2025")
+translator = DocumentTranslator(api_key="${apiKey}", model="gemini-2.0-flash-lite", max_workers=256)
 
 # Translate document
-success = translator.translate_document(
+result = translator.translate_document(
     input_path="${inputPath.replace(/\\/g, '\\\\')}",
     output_path="${outputPath.replace(/\\/g, '\\\\')}",
     target_language="${targetLanguage}"
 )
 
-if success:
+if result:
+    # Print success marker and output path in JSON format
     print("SUCCESS")
+    if isinstance(result, tuple):
+        # PDF returns (mono_path, dual_path)
+        print(json.dumps({"mono": result[0], "dual": result[1]}))
+    else:
+        # Other formats return True
+        print(json.dumps({"output": "${outputPath.replace(/\\/g, '\\\\')}"}))
 else:
     print("FAILED")
 `;
@@ -96,7 +105,20 @@ else:
           }
 
           if (code === 0 && stdout.includes('SUCCESS')) {
-            resolve({ success: true, output: stdout });
+            // Parse output paths from Python JSON output
+            try {
+              const lines = stdout.split('\n');
+              const jsonLine = lines.find(line => line.trim().startsWith('{'));
+              if (jsonLine) {
+                const pathInfo = JSON.parse(jsonLine);
+                resolve({ success: true, output: stdout, paths: pathInfo });
+              } else {
+                resolve({ success: true, output: stdout });
+              }
+            } catch (parseError) {
+              // If JSON parsing fails, still succeed but without path info
+              resolve({ success: true, output: stdout });
+            }
           } else {
             reject(new Error(`Translation failed: ${stderr || stdout}`));
           }
@@ -115,7 +137,10 @@ else:
     try {
       const checkScript = `
 import sys
+import os
+sys.path.insert(0, '${this.projectRoot.replace(/\\/g, '\\\\')}')
 try:
+    from translators import DocumentTranslator
     from google import genai
     import fitz
     import pptx

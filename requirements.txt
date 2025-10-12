@@ -1,5 +1,6 @@
 # Core Google Generative AI (Gemini API)
 google-genai>=0.2.0
+pydantic>=2.0.0            # Schema validation for structured outputs
 
 # Document processing libraries
 python-pptx>=0.6.21      # PowerPoint file handling
