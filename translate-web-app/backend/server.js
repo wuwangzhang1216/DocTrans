@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const Bull = require('bull');
 const { Server } = require('socket.io');
 const http = require('http');
-const { uploadToS3, downloadFromS3, getS3Stream } = require('./s3Helper');
+const { uploadToS3, downloadFromS3, getS3Stream, startAutoCleanup } = require('./s3Helper');
 // Load .env from project root (parent of translate-web-app)
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
@@ -532,6 +532,11 @@ app.use((error, req, res, next) => {
   console.error('Server error:', error);
   res.status(500).json({ error: error.message || 'Internal server error' });
 });
+
+// Start S3 auto-cleanup (runs every hour, deletes files older than 1 hour)
+const CLEANUP_INTERVAL = parseInt(process.env.S3_CLEANUP_INTERVAL) || 3600000; // 1 hour
+const MAX_FILE_AGE = parseInt(process.env.S3_MAX_FILE_AGE) || 3600000; // 1 hour
+startAutoCleanup(CLEANUP_INTERVAL, MAX_FILE_AGE);
 
 // Start server
 const PORT = process.env.PORT || 3001;

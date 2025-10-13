@@ -1,4 +1,5 @@
 import TranslationUpload from '@/components/TranslationUpload';
+import TranslationHistory from '@/components/TranslationHistory';
 import DocTransLogo from '@/components/DocTransLogo';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -18,6 +19,9 @@ export default function Home() {
 
         {/* Upload Section */}
         <TranslationUpload />
+
+        {/* History Section */}
+        <TranslationHistory />
 
         {/* Features Section */}
         <div className="mt-32 max-w-4xl mx-auto">

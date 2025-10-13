@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import io from 'socket.io-client';
+import { addToHistory } from '@/components/TranslationHistory';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -40,17 +41,29 @@ export default function TranslationUpload() {
     });
 
     newSocket.on('connect', () => {
-      console.log('Connected to server');
+      // Connected to server
     });
 
     newSocket.on('job-update', (update: any) => {
-      console.log('WebSocket job update:', update);
       setJob(current => {
         if (!current || current.jobId !== update.jobId) return current;
-        return {
+        const updatedJob = {
           ...current,
           ...update
         } as TranslationJob;
+
+        // Add to history when completed
+        if (updatedJob.status === 'completed' && updatedJob.outputFile) {
+          addToHistory({
+            jobId: updatedJob.jobId,
+            fileName: file?.name || 'Unknown',
+            targetLanguage,
+            completedAt: Date.now(),
+            outputFile: updatedJob.outputFile
+          });
+        }
+
+        return updatedJob;
       });
     });
 
@@ -59,7 +72,7 @@ export default function TranslationUpload() {
     return () => {
       newSocket.disconnect();
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Subscribe to job updates and poll for status
   useEffect(() => {
@@ -72,18 +85,31 @@ export default function TranslationUpload() {
           const response = await fetch(`${API_URL}/api/job/${job.jobId}`);
           if (response.ok) {
             const data = await response.json();
-            console.log('Job status poll:', data);
 
             // Update job state with polled data
-            setJob(current => ({
-              ...current,
-              jobId: job.jobId,
-              status: data.status,
-              progress: data.progress || 0,
-              message: data.message || '',
-              outputFile: data.outputFile,
-              error: data.error
-            }));
+            setJob(current => {
+              const updatedJob = {
+                ...current,
+                jobId: job.jobId,
+                status: data.status,
+                progress: data.progress || 0,
+                message: data.message || '',
+                outputFile: data.outputFile,
+                error: data.error
+              };
+              return updatedJob;
+            });
+
+            // Add to history when completed
+            if (data.status === 'completed' && data.outputFile) {
+              addToHistory({
+                jobId: job.jobId,
+                fileName: file?.name || 'Unknown',
+                targetLanguage,
+                completedAt: Date.now(),
+                outputFile: data.outputFile
+              });
+            }
 
             // Stop polling if job is completed or failed
             if (data.status === 'completed' || data.status === 'failed') {
@@ -100,7 +126,7 @@ export default function TranslationUpload() {
         clearInterval(pollInterval);
       };
     }
-  }, [socket, job?.jobId]);
+  }, [socket, job?.jobId, file, targetLanguage]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -154,7 +180,6 @@ export default function TranslationUpload() {
       const data = await response.json();
 
       if (response.ok) {
-        console.log('Job created with ID:', data.jobId);
         setJob({
           jobId: data.jobId,
           status: 'queued',
@@ -165,7 +190,6 @@ export default function TranslationUpload() {
         throw new Error(data.error || 'Upload failed');
       }
     } catch (error) {
-      console.error('Upload error:', error);
       alert(error instanceof Error ? error.message : 'Failed to upload file');
     } finally {
       setUploading(false);
