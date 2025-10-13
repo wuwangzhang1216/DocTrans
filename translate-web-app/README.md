@@ -235,6 +235,26 @@ docker-compose logs worker
 3. **WebSocket**: Real-time updates without polling overhead
 4. **Google Gemini AI**: Fast and accurate translation with gemini-2.0-flash-lite-preview model
 
+## Deployment
+
+### Heroku Deployment
+
+For deploying to Heroku with AWS S3 storage, see the comprehensive [DEPLOYMENT.md](./DEPLOYMENT.md) guide.
+
+**Quick Links**:
+- [Quick Start Guide](./DEPLOYMENT.md#quick-start)
+- [Manual Deployment](./DEPLOYMENT.md#manual-deployment)
+- [AWS S3 Configuration](./DEPLOYMENT.md#aws-s3-configuration)
+- [Troubleshooting](./DEPLOYMENT.md#troubleshooting)
+
+**What's Included**:
+- ✅ Backend + Worker deployment to Heroku
+- ✅ Frontend deployment to Heroku
+- ✅ AWS S3 integration for persistent file storage
+- ✅ Redis queue setup
+- ✅ Environment variable configuration
+- ✅ Scaling and monitoring guides
+
 ## Contributing
 
 1. Fork the repository

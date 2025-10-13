@@ -1,11 +1,12 @@
 const Bull = require('bull');
 const path = require('path');
 const fs = require('fs').promises;
-const { spawn } = require('child_process');
-
-// Load .env from project root
+const DocumentTranslator = require('./translator');
+const { downloadFromS3, uploadToS3 } = require('./s3Helper');
+// Load .env from project root (parent of translate-web-app)
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
+// Redis configuration from environment variable
 const redisUrl = process.env.REDIS_URL;
 
 if (!redisUrl) {
@@ -13,24 +14,23 @@ if (!redisUrl) {
   process.exit(1);
 }
 
+// Parse Redis URL manually for Bull compatibility
+const parseRedisUrl = (url) => {
+  const urlObj = new URL(url);
+  return {
+    host: urlObj.hostname,
+    port: parseInt(urlObj.port, 10),
+    password: urlObj.password || undefined,
+    db: urlObj.pathname ? parseInt(urlObj.pathname.slice(1), 10) || 0 : 0,
+    tls: urlObj.protocol === 'rediss:' ? { rejectUnauthorized: false } : undefined
+  };
+};
+
+const redisOptions = parseRedisUrl(redisUrl);
+console.log('Worker Redis config:', { host: redisOptions.host, port: redisOptions.port, hasTLS: !!redisOptions.tls });
+
 const redisConfig = {
-  redis: {
-    port: process.env.REDIS_PORT || 6379,
-    host: process.env.REDIS_HOST,
-    password: process.env.REDIS_PASSWORD,
-    tls: {
-      rejectUnauthorized: false
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: false,
-    retryStrategy: (times) => {
-      if (times > 3) {
-        console.error('Redis connection failed after 3 retries');
-        return null;
-      }
-      return Math.min(times * 100, 3000);
-    }
-  },
+  redis: redisOptions,
   defaultJobOptions: {
     removeOnComplete: 100,
     removeOnFail: 100,
@@ -42,148 +42,191 @@ const redisConfig = {
   }
 };
 
-// Create Bull queue
+// Create queue
 const translationQueue = new Bull('translation-queue', redisConfig);
 
-// Process translation jobs
-translationQueue.process('translate-document', async (job) => {
-  console.log(`Processing job ${job.id}:`, job.data);
+// Initialize translator
+const translator = new DocumentTranslator();
 
-  const { filePath, targetLanguage, sourceLanguage, originalName } = job.data;
+// Worker configuration
+const WORKER_CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY) || 5;
+
+// Check dependencies on startup
+(async () => {
+  try {
+    console.log('Checking Python dependencies...');
+    await translator.checkPythonDependencies();
+    console.log('All dependencies ready');
+  } catch (error) {
+    console.error('Failed to initialize:', error.message);
+    process.exit(1);
+  }
+})();
+
+// Process translation jobs
+translationQueue.process('translate-document', WORKER_CONCURRENCY, async (job) => {
+  const {
+    fileName,
+    originalName,
+    s3Key,
+    targetLanguage,
+    sourceLanguage,
+    userId
+  } = job.data;
+
+  console.log(`Processing job ${job.id} - File: ${originalName}`);
+  console.log(`S3 Key: ${s3Key}`);
+
+  // Create temp directories
+  const tempDir = path.join(__dirname, 'temp');
+  await fs.mkdir(tempDir, { recursive: true });
+
+  const localInputPath = path.join(tempDir, `input_${job.id}_${fileName}`);
+  const localOutputPath = path.join(tempDir, `output_${job.id}_${fileName}`);
 
   try {
-    // Update progress
+    // Report initial progress
+    await job.progress(5);
+
+    // Download file from S3 to local temp
+    console.log(`Downloading from S3: ${s3Key}`);
+    await downloadFromS3(s3Key, localInputPath);
+    console.log(`Downloaded to: ${localInputPath}`);
+
+    // Report progress
     await job.progress(10);
 
-    // Prepare output filename
-    const ext = path.extname(originalName);
-    const baseName = path.basename(originalName, ext);
-    const outputFileName = `translated_${baseName}${ext}`;
-    const outputPath = path.join(__dirname, 'outputs', outputFileName);
+    // Perform translation
+    console.log(`Translating ${originalName} to ${targetLanguage}...`);
 
-    // Ensure output directory exists
-    await fs.mkdir(path.join(__dirname, 'outputs'), { recursive: true });
-
-    await job.progress(20);
-
-    // Convert relative path to absolute path
-    const absoluteFilePath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(__dirname, filePath);
-
-    // Path to the Python script (in the project root)
-    const pythonScript = path.join(__dirname, '../../translate_doc.py');
-
-    // Check if Python script exists
-    try {
-      await fs.access(pythonScript);
-    } catch (error) {
-      throw new Error(`Python script not found at ${pythonScript}`);
-    }
-
-    await job.progress(30);
-
-    // Spawn Python process to run translation
-    const result = await new Promise((resolve, reject) => {
-      const args = [
-        pythonScript,
-        absoluteFilePath,
-        '-o', outputPath,
-        '-t', targetLanguage
-      ];
-
-      if (sourceLanguage && sourceLanguage !== 'auto') {
-        args.push('-s', sourceLanguage);
+    const translationResult = await translator.translateDocument(
+      localInputPath,
+      localOutputPath,
+      targetLanguage,
+      process.env.GEMINI_API_KEY,
+      async (progress) => {
+        // Map translation progress (10-85%)
+        const mappedProgress = Math.min(85, 10 + Math.ceil(progress * 75));
+        await job.progress(mappedProgress);
       }
+    );
 
-      console.log(`Running: python ${args.join(' ')}`);
+    // Use actual output path from Python (for PDFs) or the expected path
+    let actualOutputPath = localOutputPath;
+    let actualOutputFileName = path.basename(localOutputPath);
 
-      const pythonProcess = spawn('python', args);
-
-      let stdout = '';
-      let stderr = '';
-
-      pythonProcess.stdout.on('data', (data) => {
-        const output = data.toString();
-        stdout += output;
-        console.log(`Python stdout: ${output}`);
-
-        // Try to parse progress from output
-        const progressMatch = output.match(/(\d+)%/);
-        if (progressMatch) {
-          const progress = parseInt(progressMatch[1]);
-          job.progress(Math.min(90, 30 + (progress * 0.6))); // Map 0-100% to 30-90%
-        }
-      });
-
-      pythonProcess.stderr.on('data', (data) => {
-        const output = data.toString();
-        stderr += output;
-        console.error(`Python stderr: ${output}`);
-      });
-
-      pythonProcess.on('close', (code) => {
-        if (code === 0) {
-          resolve({ stdout, stderr });
-        } else {
-          reject(new Error(`Python process exited with code ${code}. Error: ${stderr}`));
-        }
-      });
-
-      pythonProcess.on('error', (error) => {
-        reject(new Error(`Failed to start Python process: ${error.message}`));
-      });
-    });
-
-    await job.progress(95);
+    if (translationResult.paths) {
+      if (translationResult.paths.mono) {
+        // PDF translation returns mono and dual paths
+        actualOutputPath = translationResult.paths.mono;
+        actualOutputFileName = path.basename(actualOutputPath);
+        console.log(`PDF translation complete. Mono: ${actualOutputPath}`);
+        console.log(`Dual version: ${translationResult.paths.dual}`);
+      } else if (translationResult.paths.output) {
+        actualOutputPath = translationResult.paths.output;
+        actualOutputFileName = path.basename(actualOutputPath);
+      }
+    }
 
     // Verify output file exists
-    try {
-      await fs.access(outputPath);
-    } catch (error) {
-      throw new Error(`Output file was not created: ${outputPath}`);
+    await fs.access(actualOutputPath);
+
+    // Upload result to S3
+    await job.progress(90);
+    const outputS3Key = `outputs/${actualOutputFileName}`;
+    console.log(`Uploading result to S3: ${outputS3Key}`);
+    await uploadToS3(actualOutputPath, outputS3Key);
+    console.log(`Result uploaded to S3: ${outputS3Key}`);
+
+    // Handle dual path for PDFs
+    if (translationResult.paths && translationResult.paths.dual) {
+      const dualFileName = path.basename(translationResult.paths.dual);
+      const dualS3Key = `outputs/${dualFileName}`;
+      console.log(`Uploading dual version to S3: ${dualS3Key}`);
+      await uploadToS3(translationResult.paths.dual, dualS3Key);
     }
 
+    // Clean up local temp files
+    try {
+      await fs.unlink(localInputPath);
+      await fs.unlink(actualOutputPath);
+      if (translationResult.paths && translationResult.paths.dual) {
+        await fs.unlink(translationResult.paths.dual);
+      }
+    } catch (error) {
+      console.error('Error cleaning up temp files:', error);
+    }
+
+    // Final progress
     await job.progress(100);
 
     console.log(`Job ${job.id} completed successfully`);
 
-    return {
-      outputFile: outputFileName,
-      message: 'Translation completed successfully'
+    const result = {
+      success: true,
+      outputFile: actualOutputFileName,
+      outputPath: actualOutputPath,
+      originalName: originalName,
+      targetLanguage: targetLanguage,
+      completedAt: new Date().toISOString()
     };
+
+    // Add dual path for PDFs if available
+    if (translationResult.paths && translationResult.paths.dual) {
+      result.dualOutputPath = translationResult.paths.dual;
+      result.dualOutputFile = path.basename(translationResult.paths.dual);
+    }
+
+    return result;
 
   } catch (error) {
     console.error(`Job ${job.id} failed:`, error);
+
+    // Clean up temp files on error
+    try {
+      await fs.unlink(localInputPath);
+    } catch (cleanupError) {
+      console.error('Cleanup error:', cleanupError);
+    }
+    try {
+      await fs.unlink(localOutputPath);
+    } catch (cleanupError) {
+      // Ignore if output doesn't exist
+    }
+
     throw error;
   }
 });
 
-// Queue event listeners
+// Queue event handlers
+translationQueue.on('error', (error) => {
+  console.error('Queue error:', error);
+});
+
+translationQueue.on('stalled', (job) => {
+  console.warn(`Job ${job.id} stalled and will be retried`);
+});
+
 translationQueue.on('completed', (job, result) => {
-  console.log(`Job ${job.id} completed:`, result);
+  console.log(`Job ${job.id} completed:`, result.outputFile);
 });
 
-translationQueue.on('failed', (job, err) => {
-  console.error(`Job ${job.id} failed:`, err.message);
+translationQueue.on('failed', (job, error) => {
+  console.error(`Job ${job.id} failed:`, error.message);
 });
-
-translationQueue.on('progress', (job, progress) => {
-  console.log(`Job ${job.id} progress: ${progress}%`);
-});
-
-console.log('Worker started, waiting for jobs...');
-console.log('Connected to Redis:', redisUrl);
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, closing worker...');
+  console.log('SIGTERM received, closing queue...');
   await translationQueue.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT received, closing worker...');
+  console.log('SIGINT received, closing queue...');
   await translationQueue.close();
   process.exit(0);
 });
+
+console.log(`Worker started with concurrency: ${WORKER_CONCURRENCY}`);
+console.log('Waiting for jobs...');

@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const Bull = require('bull');
 const { Server } = require('socket.io');
 const http = require('http');
+const { uploadToS3, downloadFromS3, getS3Stream } = require('./s3Helper');
 // Load .env from project root (parent of translate-web-app)
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
@@ -79,15 +80,23 @@ if (!redisUrl) {
   process.exit(1);
 }
 
+// Parse Redis URL manually for Bull compatibility
+const parseRedisUrl = (url) => {
+  const urlObj = new URL(url);
+  return {
+    host: urlObj.hostname,
+    port: parseInt(urlObj.port, 10),
+    password: urlObj.password || undefined,
+    db: urlObj.pathname ? parseInt(urlObj.pathname.slice(1), 10) || 0 : 0,
+    tls: urlObj.protocol === 'rediss:' ? { rejectUnauthorized: false } : undefined
+  };
+};
+
+const redisOptions = parseRedisUrl(redisUrl);
+console.log('Redis config:', { host: redisOptions.host, port: redisOptions.port, hasTLS: !!redisOptions.tls });
+
 const redisConfig = {
-  redis: {
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    host: process.env.REDIS_HOST,
-    password: process.env.REDIS_PASSWORD,
-    tls: {
-      rejectUnauthorized: false
-    }
-  },
+  redis: redisOptions,
   defaultJobOptions: {
     removeOnComplete: 100,
     removeOnFail: 100,
@@ -236,14 +245,27 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
 
     const { targetLanguage = 'Chinese', sourceLanguage = 'auto' } = req.body;
 
-    // Create job data
     // Fix UTF-8 encoding for the original filename
     const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
+    // Upload file to S3
+    const s3Key = `uploads/${req.file.filename}`;
+    console.log(`Uploading ${req.file.path} to S3: ${s3Key}`);
+    const s3Url = await uploadToS3(req.file.path, s3Key);
+    console.log(`File uploaded to S3: ${s3Url}`);
+
+    // Clean up local file after upload to S3
+    try {
+      await fs.unlink(req.file.path);
+    } catch (err) {
+      console.error('Error deleting local file:', err);
+    }
+
+    // Create job data with S3 key
     const jobData = {
       fileName: req.file.filename,
       originalName: originalName,
-      filePath: req.file.path,
+      s3Key: s3Key, // Use S3 key instead of local path
       targetLanguage,
       sourceLanguage,
       uploadTime: new Date().toISOString(),
@@ -364,10 +386,10 @@ app.get('/api/job/:jobId', async (req, res) => {
 app.get('/api/download/:fileName', async (req, res) => {
   try {
     const { fileName } = req.params;
-    const filePath = path.join('./outputs', fileName);
+    const s3Key = `outputs/${fileName}`;
 
-    // Check if file exists
-    await fs.access(filePath);
+    // Get file stream from S3
+    const stream = await getS3Stream(s3Key);
 
     // Properly encode the filename for UTF-8 characters
     const encodedFileName = encodeURIComponent(fileName);
@@ -379,15 +401,8 @@ app.get('/api/download/:fileName', async (req, res) => {
       `attachment; filename*=UTF-8''${encodedFileName}`
     );
 
-    // Send the file
-    res.sendFile(path.resolve(filePath), (err) => {
-      if (err) {
-        console.error('Download error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Error downloading file' });
-        }
-      }
-    });
+    // Pipe S3 stream to response
+    stream.pipe(res);
 
   } catch (error) {
     console.error('Download error:', error);
