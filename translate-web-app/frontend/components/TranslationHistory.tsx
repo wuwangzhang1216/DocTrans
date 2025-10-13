@@ -24,6 +24,32 @@ export default function TranslationHistory() {
   // Load history from localStorage
   useEffect(() => {
     loadHistory();
+
+    // Listen for storage changes (from other tabs/windows)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'translationHistory') {
+        loadHistory();
+      }
+    };
+
+    // Listen for custom event (from same tab)
+    const handleHistoryUpdate = () => {
+      loadHistory();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('historyUpdated', handleHistoryUpdate);
+
+    // Poll for updates every 2 seconds as backup
+    const pollInterval = setInterval(() => {
+      loadHistory();
+    }, 2000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('historyUpdated', handleHistoryUpdate);
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const loadHistory = () => {
@@ -180,6 +206,9 @@ export function addToHistory(item: HistoryItem) {
     const limitedHistory = validHistory.slice(0, 50);
 
     localStorage.setItem('translationHistory', JSON.stringify(limitedHistory));
+
+    // Trigger custom event to notify TranslationHistory component
+    window.dispatchEvent(new Event('historyUpdated'));
   } catch (error) {
     console.error('Error adding to history:', error);
   }
