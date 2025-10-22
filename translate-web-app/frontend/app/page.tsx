@@ -2,6 +2,7 @@ import TranslationUpload from '@/components/TranslationUpload';
 import TranslationHistory from '@/components/TranslationHistory';
 import DocTransLogo from '@/components/DocTransLogo';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -88,6 +89,23 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Footer */}
+        <footer className="mt-24 pb-8 text-center border-t border-gray-800 pt-8">
+          <div className="space-y-4">
+            <div className="flex justify-center space-x-6 text-sm">
+              <Link
+                href="/privacy"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Privacy Policy
+              </Link>
+            </div>
+            <p className="text-gray-500 text-xs">
+              © {new Date().getFullYear()} DocTrans. All rights reserved.
+            </p>
+          </div>
+        </footer>
       </div>
     </main>
   );
