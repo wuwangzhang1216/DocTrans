@@ -211,7 +211,7 @@ class DOCXTranslator:
             return {"batch_idx": batch_idx, "error": str(e)}
 
     def translate(self, input_path: str, output_path: str,
-                 target_language: str) -> bool:
+                 target_language: str, progress_callback=None) -> bool:
         """
         Translate Word document.
 
@@ -219,11 +219,15 @@ class DOCXTranslator:
             input_path: Path to input DOCX file
             output_path: Path to save translated DOCX file
             target_language: Target language for translation
+            progress_callback: Optional callback function(progress: float) for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
         """
         try:
+            if progress_callback:
+                progress_callback(0.05)
+
             doc = Document(input_path)
 
             # Gather paragraph runs
@@ -260,6 +264,13 @@ class DOCXTranslator:
             print(f"  - Workers per batch: {workers_per_batch}")
             print(f"  - Total concurrent API calls: {target_batches * workers_per_batch}")
 
+            if progress_callback:
+                progress_callback(0.1)
+
+            # Track progress
+            total_batches = 0
+            completed_batches = 0
+
             # Process body paragraphs in batches
             paragraph_batches = []
             if body_paragraphs:
@@ -271,6 +282,7 @@ class DOCXTranslator:
                     paragraph_batches.append((len(paragraph_batches), batch, target_language, api_key, self.client.model, workers_per_batch))
 
             translated_body = {}
+            total_batches = len(paragraph_batches)
             if paragraph_batches:
                 print(f"Processing {len(paragraph_batches)} paragraph batches...")
                 # Use target_batches for outer parallelism (batch-level)
@@ -287,8 +299,17 @@ class DOCXTranslator:
                             if 'error' not in result:
                                 for para_idx, translated_runs in result['translated_paragraphs']:
                                     translated_body[para_idx] = translated_runs
+                            completed_batches += 1
+                            # Report progress from 10% to 50% for body paragraphs
+                            if progress_callback and total_batches > 0:
+                                progress = 0.1 + (completed_batches / total_batches) * 0.4
+                                progress_callback(progress)
                         except Exception as e:
                             print(f"Paragraph batch {batch_idx} translation failed: {str(e)}")
+                            completed_batches += 1
+                            if progress_callback and total_batches > 0:
+                                progress = 0.1 + (completed_batches / total_batches) * 0.4
+                                progress_callback(progress)
 
             # Process table paragraphs in batches
             table_batches = []
@@ -301,6 +322,8 @@ class DOCXTranslator:
                     table_batches.append((len(table_batches), batch, target_language, api_key, self.client.model, workers_per_batch))
 
             translated_table = {}
+            total_table_batches = len(table_batches)
+            completed_table_batches = 0
             if table_batches:
                 print(f"Processing {len(table_batches)} table batches...")
                 # Use target_batches for outer parallelism (batch-level)
@@ -317,8 +340,17 @@ class DOCXTranslator:
                             if 'error' not in result:
                                 for key, translated_runs in result['translated_table_paragraphs']:
                                     translated_table[key] = translated_runs
+                            completed_table_batches += 1
+                            # Report progress from 50% to 80% for tables
+                            if progress_callback and total_table_batches > 0:
+                                progress = 0.5 + (completed_table_batches / total_table_batches) * 0.3
+                                progress_callback(progress)
                         except Exception as e:
                             print(f"Table batch {batch_idx} translation failed: {str(e)}")
+                            completed_table_batches += 1
+                            if progress_callback and total_table_batches > 0:
+                                progress = 0.5 + (completed_table_batches / total_table_batches) * 0.3
+                                progress_callback(progress)
 
             # Apply body paragraph translations
             for para_idx, paragraph in enumerate(doc.paragraphs):
@@ -339,7 +371,14 @@ class DOCXTranslator:
                                         paragraph.runs[run_idx].text = run_text
 
             # Save translated document
+            if progress_callback:
+                progress_callback(0.9)
+
             doc.save(output_path)
+
+            if progress_callback:
+                progress_callback(1.0)
+
             print(f"[SUCCESS] Translated DOCX saved to: {output_path}")
             return True
 

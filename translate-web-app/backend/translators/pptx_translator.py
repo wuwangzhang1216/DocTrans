@@ -171,7 +171,7 @@ class PPTXTranslator:
             return {'slide_idx': slide_idx, 'error': str(e)}
 
     def translate(self, input_path: str, output_path: str,
-                  target_language: str) -> bool:
+                  target_language: str, progress_callback=None) -> bool:
         """
         Translate PowerPoint presentation.
 
@@ -179,11 +179,15 @@ class PPTXTranslator:
             input_path: Path to input PPTX file
             output_path: Path to save translated PPTX file
             target_language: Target language for translation
+            progress_callback: Optional callback function(progress: float) for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
         """
         try:
+            if progress_callback:
+                progress_callback(0.05)
+
             prs = Presentation(input_path)
 
             # Extract content from all slides
@@ -228,6 +232,8 @@ class PPTXTranslator:
             if not slides_data:
                 print("No text content found in PPTX")
                 prs.save(output_path)
+                if progress_callback:
+                    progress_callback(1.0)
                 return True
 
             total_slides = len(slides_data)
@@ -238,8 +244,12 @@ class PPTXTranslator:
             print(f"  - Using up to {workers_per_slide} workers per slide")
             print(f"  - Total workers: {workers_per_slide * concurrent_slides}")
 
+            if progress_callback:
+                progress_callback(0.1)
+
             # Process slides in parallel
             translated_results = {}
+            completed_slides = 0
             with ThreadPoolExecutor(max_workers=workers_per_slide * concurrent_slides) as executor:
                 future_to_slide = {
                     executor.submit(self._translate_slide_content, slide_data): slide_data[0]
@@ -252,8 +262,17 @@ class PPTXTranslator:
                         result = future.result()
                         if 'error' not in result:
                             translated_results[slide_idx] = result['translated_shapes']
+                        completed_slides += 1
+                        # Report progress from 10% to 80% during translation
+                        if progress_callback:
+                            progress = 0.1 + (completed_slides / total_slides) * 0.7
+                            progress_callback(progress)
                     except Exception as e:
                         print(f"Slide {slide_idx + 1} translation failed: {str(e)}")
+                        completed_slides += 1
+                        if progress_callback:
+                            progress = 0.1 + (completed_slides / total_slides) * 0.7
+                            progress_callback(progress)
 
             # Apply translations back to the presentation
             for slide_idx, slide in enumerate(prs.slides):
@@ -294,7 +313,14 @@ class PPTXTranslator:
                                 shape.text = translated_content
 
             # Save translated presentation
+            if progress_callback:
+                progress_callback(0.9)
+
             prs.save(output_path)
+
+            if progress_callback:
+                progress_callback(1.0)
+
             print(f"[SUCCESS] Translated PPTX saved to: {output_path}")
             return True
 

@@ -65,7 +65,7 @@ class TextTranslator:
             return {'block_idx': block_idx, 'translated_text': block_text, 'error': str(e)}
 
     def translate_txt(self, input_path: str, output_path: str,
-                     target_language: str) -> bool:
+                     target_language: str, progress_callback=None) -> bool:
         """
         Translate plain text file.
 
@@ -73,18 +73,31 @@ class TextTranslator:
             input_path: Path to input text file
             output_path: Path to save translated text file
             target_language: Target language for translation
+            progress_callback: Optional callback function(progress: float) for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
         """
         try:
+            if progress_callback:
+                progress_callback(0.1)
+
             with open(input_path, 'r', encoding='utf-8') as f:
                 text = f.read()
 
+            if progress_callback:
+                progress_callback(0.3)
+
             translated = self.client.translate_text(text, target_language)
+
+            if progress_callback:
+                progress_callback(0.8)
 
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(translated)
+
+            if progress_callback:
+                progress_callback(1.0)
 
             print(f"[SUCCESS] Translated TXT saved to: {output_path}")
             return True
@@ -94,7 +107,7 @@ class TextTranslator:
             return False
 
     def translate_markdown(self, input_path: str, output_path: str,
-                          target_language: str) -> bool:
+                          target_language: str, progress_callback=None) -> bool:
         """
         Translate Markdown file while preserving formatting, code blocks, and links.
 
@@ -102,11 +115,15 @@ class TextTranslator:
             input_path: Path to input Markdown file
             output_path: Path to save translated Markdown file
             target_language: Target language for translation
+            progress_callback: Optional callback function(progress: float) for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
         """
         try:
+            if progress_callback:
+                progress_callback(0.05)
+
             with open(input_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
@@ -164,8 +181,13 @@ class TextTranslator:
             print(f"  - Text blocks to translate: {len(text_blocks_to_translate)}")
             print(f"  - Concurrent workers: {max_workers}")
 
+            if progress_callback:
+                progress_callback(0.1)
+
             # Translate in parallel
             translated_blocks = {}
+            completed_blocks = 0
+            total_blocks = len(text_blocks_to_translate)
             if text_blocks_to_translate:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_to_block = {
@@ -179,8 +201,17 @@ class TextTranslator:
                             result = future.result()
                             if 'error' not in result:
                                 translated_blocks[block_idx] = result['translated_text']
+                            completed_blocks += 1
+                            # Report progress from 10% to 80%
+                            if progress_callback and total_blocks > 0:
+                                progress = 0.1 + (completed_blocks / total_blocks) * 0.7
+                                progress_callback(progress)
                         except Exception as e:
                             print(f"Block {block_idx} translation failed: {str(e)}")
+                            completed_blocks += 1
+                            if progress_callback and total_blocks > 0:
+                                progress = 0.1 + (completed_blocks / total_blocks) * 0.7
+                                progress_callback(progress)
 
             # Reconstruct markdown
             translated_content_parts = []
@@ -194,8 +225,14 @@ class TextTranslator:
 
             translated_content = '\n'.join(translated_content_parts)
 
+            if progress_callback:
+                progress_callback(0.9)
+
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(translated_content)
+
+            if progress_callback:
+                progress_callback(1.0)
 
             print(f"[SUCCESS] Translated Markdown saved to: {output_path}")
             return True

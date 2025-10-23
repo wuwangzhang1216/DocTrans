@@ -1139,18 +1139,22 @@ class PDFTranslator:
             model_path=model_path
         )
 
-    def translate_with_overlay(self, input_path: str, output_path: str, target_language: str):
+    def translate_with_overlay(self, input_path: str, output_path: str, target_language: str, progress_callback=None):
         """Returns tuple of (mono_path, dual_path) on success"""
         try:
+            if progress_callback:
+                progress_callback(0.05)
             mono, dual = self.translate(input_path, output_path, target_language)
+            if progress_callback:
+                progress_callback(1.0)
             print(f"[SUCCESS] Translated PDF saved to: {mono}")
             return (mono, dual)
         except Exception as e:
             print(f"Error: {e}")
             return False
 
-    def translate_with_redaction(self, input_path: str, output_path: str, target_language: str):
-        return self.translate_with_overlay(input_path, output_path, target_language)
+    def translate_with_redaction(self, input_path: str, output_path: str, target_language: str, progress_callback=None):
+        return self.translate_with_overlay(input_path, output_path, target_language, progress_callback)
 
-    def translate_hybrid(self, input_path: str, output_path: str, target_language: str):
-        return self.translate_with_overlay(input_path, output_path, target_language)
+    def translate_hybrid(self, input_path: str, output_path: str, target_language: str, progress_callback=None):
+        return self.translate_with_overlay(input_path, output_path, target_language, progress_callback)

@@ -55,7 +55,7 @@ class DocumentTranslator:
         return self.translation_client.translate_text(text, target_language, source_language)
 
     def translate_document(self, input_path: str, output_path: Optional[str] = None,
-                          target_language: str = "Spanish", method: str = "auto") -> bool:
+                          target_language: str = "Spanish", method: str = "auto", progress_callback=None) -> bool:
         """
         Main method to translate any supported document format.
 
@@ -64,6 +64,7 @@ class DocumentTranslator:
             output_path: Path to save translated document (optional)
             target_language: Target language for translation
             method: PDF translation method - "overlay", "redaction", or "auto"
+            progress_callback: Optional callback function(progress: float) for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
@@ -79,21 +80,21 @@ class DocumentTranslator:
 
         # Route to appropriate translator
         if file_ext == '.pptx':
-            return self.pptx_translator.translate(input_path, output_path, target_language)
+            return self.pptx_translator.translate(input_path, output_path, target_language, progress_callback)
         elif file_ext == '.pdf':
             # Choose PDF translation method
             if method == "overlay":
-                return self.pdf_translator.translate_with_overlay(input_path, output_path, target_language)
+                return self.pdf_translator.translate_with_overlay(input_path, output_path, target_language, progress_callback)
             elif method == "redaction":
-                return self.pdf_translator.translate_with_redaction(input_path, output_path, target_language)
+                return self.pdf_translator.translate_with_redaction(input_path, output_path, target_language, progress_callback)
             else:  # auto
-                return self.pdf_translator.translate_hybrid(input_path, output_path, target_language)
+                return self.pdf_translator.translate_hybrid(input_path, output_path, target_language, progress_callback)
         elif file_ext == '.docx':
-            return self.docx_translator.translate(input_path, output_path, target_language)
+            return self.docx_translator.translate(input_path, output_path, target_language, progress_callback)
         elif file_ext in ['.txt', '.text']:
-            return self.text_translator.translate_txt(input_path, output_path, target_language)
+            return self.text_translator.translate_txt(input_path, output_path, target_language, progress_callback)
         elif file_ext in ['.md', '.markdown']:
-            return self.text_translator.translate_markdown(input_path, output_path, target_language)
+            return self.text_translator.translate_markdown(input_path, output_path, target_language, progress_callback)
         else:
             print(f"Unsupported file format: {file_ext}")
             return False

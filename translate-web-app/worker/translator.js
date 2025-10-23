@@ -24,14 +24,24 @@ sys.path.insert(0, '${this.projectRoot.replace(/\\/g, '\\\\')}')
 
 from translators import DocumentTranslator
 
+# Define progress callback that outputs standardized progress
+def progress_callback(progress_value):
+    """Output progress in a format that Node.js can parse"""
+    # Ensure progress is between 0 and 1
+    progress_value = max(0.0, min(1.0, float(progress_value)))
+    # Output in format: PROGRESS:XX where XX is 0-100
+    progress_percent = int(progress_value * 100)
+    print(f"PROGRESS:{progress_percent}", flush=True)
+
 # Initialize translator with dynamic worker allocation (256 max workers, up to 16 concurrent pages, 64 workers per page)
 translator = DocumentTranslator(api_key="${apiKey}", model="gemini-2.0-flash-lite", max_workers=256)
 
-# Translate document
+# Translate document with progress callback
 result = translator.translate_document(
     input_path="${inputPath.replace(/\\/g, '\\\\')}",
     output_path="${outputPath.replace(/\\/g, '\\\\')}",
-    target_language="${targetLanguage}"
+    target_language="${targetLanguage}",
+    progress_callback=progress_callback
 )
 
 if result:
@@ -66,6 +76,18 @@ else:
           // Parse progress from output
           const lines = data.toString().split('\n');
           for (const line of lines) {
+            // Look for standardized PROGRESS:XX format (highest priority)
+            const progressMatch = line.match(/PROGRESS:(\d+)/);
+            if (progressMatch) {
+              const progress = parseInt(progressMatch[1]);
+              if (progress > lastProgress) {
+                lastProgress = progress;
+                if (onProgress) onProgress(progress / 100);
+              }
+              continue;
+            }
+
+            // Legacy fallback: parse old-style progress messages
             if (line.includes('Processing') || line.includes('Translating') || line.includes('Completed')) {
               // Extract progress percentage if available
               const match = line.match(/(\d+)%/);
