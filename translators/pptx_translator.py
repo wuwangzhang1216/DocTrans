@@ -1,6 +1,13 @@
 """
 PowerPoint (PPTX) translation module.
 Preserves formatting, bullet points, and table structures.
+
+Architecture:
+- Uses nested parallelization for optimal performance
+- Outer level: Multiple slides processed concurrently
+- Inner level: All text elements within each slide processed in parallel
+- Flattens hierarchical structure (shapes -> paragraphs -> runs) into parallel tasks
+- Reconstructs structure after translation using metadata tracking
 """
 
 import os
@@ -91,78 +98,321 @@ class PPTXTranslator:
 
         return runs
 
-    def _translate_slide_content(self, slide_data: tuple) -> dict:
+    def _translate_single_text(self, text: str, target_language: str,
+                              api_key: str, model: str) -> str:
         """
-        Translate content of a single slide.
+        Translate a single text block.
 
         Args:
-            slide_data: Tuple containing (slide_index, slide_content, target_language, api_key, model)
+            text: Text to translate
+            target_language: Target language
+            api_key: API key
+            model: Model name
+
+        Returns:
+            Translated text
+        """
+        if api_key:
+            os.environ['GEMINI_API_KEY'] = api_key
+        genai_client = genai.Client()
+
+        prompt = (
+            f"You are a professional technical translator. Translate into {target_language} and preserve formatting.\n\n"
+            f"Translate to {target_language} with native, accurate, technical wording.\n"
+            "Strictly preserve original line breaks, indentation, and list markers.\n"
+            "Only return the translated text.\n\n"
+            f"Text to translate:\n{text}"
+        )
+
+        response = genai_client.models.generate_content(
+            model=model,
+            contents=prompt
+        )
+        return response.text.strip()
+
+    def _process_translation_task(self, task: dict) -> dict:
+        """
+        Process a single translation task (either text or runs).
+
+        Args:
+            task: Dictionary containing task type, content, metadata, and translation params
+
+        Returns:
+            Dictionary with translated content and metadata for reconstruction
+        """
+        try:
+            task_type = task['task_type']
+            content = task['content']
+            target_language = task['target_language']
+            api_key = task['api_key']
+            model = task['model']
+            metadata = task['metadata']
+
+            if task_type == 'text':
+                translated_content = self._translate_single_text(
+                    content, target_language, api_key, model
+                )
+            elif task_type == 'runs':
+                translated_content = self._translate_runs_with_context(
+                    content, target_language, api_key, model
+                )
+            else:
+                translated_content = content
+
+            return {
+                'success': True,
+                'content': translated_content,
+                'metadata': metadata
+            }
+
+        except Exception as e:
+            print(f"Translation task error: {str(e)}")
+            return {
+                'success': False,
+                'content': content,
+                'metadata': metadata,
+                'error': str(e)
+            }
+
+    def _reconstruct_slide_structure(self, translation_results: List[dict],
+                                    shapes_data: List[tuple]) -> List[tuple]:
+        """
+        Reconstruct hierarchical slide structure from flat translation results.
+
+        Args:
+            translation_results: Flat list of translation results with metadata
+            shapes_data: Original shapes data for structure reference
+
+        Returns:
+            List of (shape_idx, translated_content) tuples in original format
+        """
+        # Group results by shape_idx and shape_type
+        shape_groups = {}
+        for result in translation_results:
+            metadata = result['metadata']
+            shape_idx = metadata['shape_idx']
+            shape_type = metadata['shape_type']
+
+            if shape_idx not in shape_groups:
+                shape_groups[shape_idx] = {
+                    'shape_type': shape_type,
+                    'results': []
+                }
+            shape_groups[shape_idx]['results'].append(result)
+
+        # Reconstruct each shape
+        translated_shapes = []
+        for shape_idx in sorted(shape_groups.keys()):
+            group = shape_groups[shape_idx]
+            shape_type = group['shape_type']
+            results = group['results']
+
+            if shape_type == 'text':
+                # Simple text shape - should only have one result
+                if results:
+                    translated_shapes.append((shape_idx, results[0]['content']))
+
+            elif shape_type == 'paragraphs':
+                # Reconstruct paragraphs structure
+                para_dict = {}
+                for result in results:
+                    para_idx = result['metadata']['para_idx']
+                    translated_runs = result['content']
+                    para_dict[para_idx] = translated_runs
+
+                # Build paragraphs list with indexed runs
+                translated_paragraphs = []
+                for para_idx in sorted(para_dict.keys()):
+                    translated_runs = para_dict[para_idx]
+                    translated_paragraphs.append((
+                        para_idx,
+                        [(i, t) for i, t in enumerate(translated_runs)]
+                    ))
+                translated_shapes.append((shape_idx, translated_paragraphs))
+
+            elif shape_type == 'table':
+                # Reconstruct table structure: row -> cell -> paragraph
+                # Get original table structure for dimensions
+                original_shape = shapes_data[shape_idx]
+                original_table = original_shape[1]
+
+                # Build nested structure
+                table_dict = {}
+                for result in results:
+                    row_idx = result['metadata']['row_idx']
+                    cell_idx = result['metadata']['cell_idx']
+                    para_idx = result['metadata']['para_idx']
+                    translated_runs = result['content']
+
+                    if row_idx not in table_dict:
+                        table_dict[row_idx] = {}
+                    if cell_idx not in table_dict[row_idx]:
+                        table_dict[row_idx][cell_idx] = {}
+                    table_dict[row_idx][cell_idx][para_idx] = translated_runs
+
+                # Rebuild table matching original structure
+                translated_table = []
+                for row_idx in range(len(original_table)):
+                    translated_row = []
+                    row_data = original_table[row_idx]
+                    for cell_idx in range(len(row_data)):
+                        translated_cell_paras = []
+                        cell_data = original_table[row_idx][cell_idx]
+                        for para_idx in range(len(cell_data)):
+                            if (row_idx in table_dict and
+                                cell_idx in table_dict[row_idx] and
+                                para_idx in table_dict[row_idx][cell_idx]):
+                                translated_runs = table_dict[row_idx][cell_idx][para_idx]
+                            else:
+                                # Use original if not translated (empty content)
+                                translated_runs = original_table[row_idx][cell_idx][para_idx]
+                            translated_cell_paras.append(translated_runs)
+                        translated_row.append(translated_cell_paras)
+                    translated_table.append(translated_row)
+
+                translated_shapes.append((shape_idx, translated_table))
+
+        return translated_shapes
+
+    def _translate_slide_content(self, slide_data: tuple) -> dict:
+        """
+        Translate content of a single slide using parallel processing.
+
+        Args:
+            slide_data: Tuple containing (slide_index, slide_content, target_language, api_key, model, workers_per_slide)
 
         Returns:
             Dictionary with translated content for the slide
         """
-        slide_idx, shapes_data, target_language, api_key, model = slide_data
+        slide_idx, shapes_data, target_language, api_key, model, workers_per_slide = slide_data
 
         try:
-            if api_key:
-                os.environ['GEMINI_API_KEY'] = api_key
-            genai_client = genai.Client()
-            translated_shapes = []
+            # Build flat list of translation tasks with metadata
+            translation_tasks = []
 
             for shape_idx, shape_info in enumerate(shapes_data):
                 shape_type, content = shape_info
 
                 if shape_type == 'text':
                     if content and content.strip():
-                        prompt = (
-                            f"You are a professional technical translator. Translate into {target_language} and preserve formatting.\n\n"
-                            f"Translate to {target_language} with native, accurate, technical wording.\n"
-                            "Strictly preserve original line breaks, indentation, and list markers.\n"
-                            "Only return the translated text.\n\n"
-                            f"Text to translate:\n{content}"
-                        )
-
-                        response = genai_client.models.generate_content(
-                            model=model,
-                            contents=prompt
-                        )
-                        translated_shapes.append((shape_idx, response.text.strip()))
+                        translation_tasks.append({
+                            'task_type': 'text',
+                            'content': content,
+                            'target_language': target_language,
+                            'api_key': api_key,
+                            'model': model,
+                            'metadata': {
+                                'shape_idx': shape_idx,
+                                'shape_type': 'text'
+                            }
+                        })
                     else:
-                        translated_shapes.append((shape_idx, content))
+                        # Empty text, no translation needed
+                        translation_tasks.append({
+                            'task_type': 'skip',
+                            'content': content,
+                            'target_language': target_language,
+                            'api_key': api_key,
+                            'model': model,
+                            'metadata': {
+                                'shape_idx': shape_idx,
+                                'shape_type': 'text'
+                            }
+                        })
 
                 elif shape_type == 'table':
-                    # Translate table content
-                    translated_table = []
+                    # Flatten table structure into individual paragraph translation tasks
                     for row_idx, row_cells in enumerate(content):
-                        translated_row_cells = []
                         for cell_idx, cell_paragraphs in enumerate(row_cells):
-                            translated_cell_paragraphs = []
                             for para_idx, runs in enumerate(cell_paragraphs):
                                 if runs and any(r.strip() for r in runs):
-                                    translated_runs = self._translate_runs_with_context(
-                                        runs, target_language, api_key, model
-                                    )
+                                    translation_tasks.append({
+                                        'task_type': 'runs',
+                                        'content': runs,
+                                        'target_language': target_language,
+                                        'api_key': api_key,
+                                        'model': model,
+                                        'metadata': {
+                                            'shape_idx': shape_idx,
+                                            'shape_type': 'table',
+                                            'row_idx': row_idx,
+                                            'cell_idx': cell_idx,
+                                            'para_idx': para_idx
+                                        }
+                                    })
                                 else:
-                                    translated_runs = runs
-                                translated_cell_paragraphs.append(translated_runs)
-                            translated_row_cells.append(translated_cell_paragraphs)
-                        translated_table.append(translated_row_cells)
-                    translated_shapes.append((shape_idx, translated_table))
+                                    translation_tasks.append({
+                                        'task_type': 'skip',
+                                        'content': runs,
+                                        'target_language': target_language,
+                                        'api_key': api_key,
+                                        'model': model,
+                                        'metadata': {
+                                            'shape_idx': shape_idx,
+                                            'shape_type': 'table',
+                                            'row_idx': row_idx,
+                                            'cell_idx': cell_idx,
+                                            'para_idx': para_idx
+                                        }
+                                    })
 
                 elif shape_type == 'paragraphs':
-                    translated_paragraphs = []
+                    # Flatten paragraphs into individual translation tasks
                     for para_idx, runs_data in enumerate(content):
                         if runs_data and any(r.strip() for r in runs_data):
-                            translated_runs = self._translate_runs_with_context(
-                                runs_data, target_language, api_key, model
-                            )
+                            translation_tasks.append({
+                                'task_type': 'runs',
+                                'content': runs_data,
+                                'target_language': target_language,
+                                'api_key': api_key,
+                                'model': model,
+                                'metadata': {
+                                    'shape_idx': shape_idx,
+                                    'shape_type': 'paragraphs',
+                                    'para_idx': para_idx
+                                }
+                            })
                         else:
-                            translated_runs = runs_data
-                        translated_paragraphs.append((
-                            para_idx,
-                            [(i, t) for i, t in enumerate(translated_runs)]
-                        ))
-                    translated_shapes.append((shape_idx, translated_paragraphs))
+                            translation_tasks.append({
+                                'task_type': 'skip',
+                                'content': runs_data,
+                                'target_language': target_language,
+                                'api_key': api_key,
+                                'model': model,
+                                'metadata': {
+                                    'shape_idx': shape_idx,
+                                    'shape_type': 'paragraphs',
+                                    'para_idx': para_idx
+                                }
+                            })
+
+            # Process all translation tasks in parallel
+            translation_results = []
+            if translation_tasks:
+                with ThreadPoolExecutor(max_workers=workers_per_slide) as executor:
+                    future_to_task = {
+                        executor.submit(self._process_translation_task, task): task
+                        for task in translation_tasks
+                    }
+
+                    for future in concurrent.futures.as_completed(future_to_task):
+                        try:
+                            result = future.result()
+                            translation_results.append(result)
+                        except Exception as e:
+                            task = future_to_task[future]
+                            print(f"Task execution error: {str(e)}")
+                            translation_results.append({
+                                'success': False,
+                                'content': task['content'],
+                                'metadata': task['metadata'],
+                                'error': str(e)
+                            })
+
+            # Reconstruct hierarchical structure from flat results
+            translated_shapes = self._reconstruct_slide_structure(
+                translation_results, shapes_data
+            )
 
             return {'slide_idx': slide_idx, 'translated_shapes': translated_shapes}
 
@@ -223,6 +473,7 @@ class PPTXTranslator:
                 if shapes_data:
                     # Use API key from the translation client
                     api_key = self.client.api_key if hasattr(self.client, 'api_key') and self.client.api_key else os.environ.get('GEMINI_API_KEY', None)
+                    # Note: workers_per_slide will be added after calculation
                     slides_data.append((slide_idx, shapes_data, target_language, api_key, self.client.model))
 
             if not slides_data:
@@ -233,17 +484,23 @@ class PPTXTranslator:
             total_slides = len(slides_data)
             workers_per_slide, concurrent_slides = self.client.calculate_workers_per_page(total_slides)
 
-            print(f"Processing {total_slides} slides with dynamic allocation:")
+            print(f"Processing {total_slides} slides with nested parallel processing:")
             print(f"  - Processing {concurrent_slides} slides concurrently")
-            print(f"  - Using up to {workers_per_slide} workers per slide")
+            print(f"  - Using up to {workers_per_slide} workers per slide for parallel element translation")
             print(f"  - Total workers: {workers_per_slide * concurrent_slides}")
+
+            # Add workers_per_slide to each slide data tuple
+            slides_data_with_workers = [
+                (slide_idx, shapes_data, target_language, api_key, model, workers_per_slide)
+                for slide_idx, shapes_data, target_language, api_key, model in slides_data
+            ]
 
             # Process slides in parallel
             translated_results = {}
-            with ThreadPoolExecutor(max_workers=workers_per_slide * concurrent_slides) as executor:
+            with ThreadPoolExecutor(max_workers=concurrent_slides) as executor:
                 future_to_slide = {
                     executor.submit(self._translate_slide_content, slide_data): slide_data[0]
-                    for slide_data in slides_data
+                    for slide_data in slides_data_with_workers
                 }
 
                 for future in concurrent.futures.as_completed(future_to_slide):
