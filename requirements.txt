@@ -12,6 +12,7 @@ reportlab>=4.0.0         # PDF creation for translated documents
 # Optional but recommended dependencies
 chardet>=5.0.0           # Character encoding detection
 Pillow>=10.0.0           # Image processing (for documents with images)
+fonttools>=4.40.0        # For PDF font subsetting (reduces file size)
 
 # Environment and configuration
 python-dotenv>=1.0.0     # For managing API keys in .env files

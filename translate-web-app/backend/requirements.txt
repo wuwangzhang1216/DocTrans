@@ -20,6 +20,7 @@ tqdm>=4.66.0
 # Optional but recommended dependencies
 chardet>=5.0.0
 Pillow>=10.0.0
+fonttools>=4.40.0  # For PDF font subsetting (reduces file size)
 
 # Environment and configuration
 python-dotenv>=1.0.0

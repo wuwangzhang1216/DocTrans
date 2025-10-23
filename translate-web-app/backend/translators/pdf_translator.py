@@ -27,7 +27,7 @@ from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfdevice import PDFDevice
 from pdfminer.pdfinterp import PDFContentParser
 from pdfminer.pdftypes import dict_value, list_value, PDFObjRef
-from pdfminer.psparser import PSKeyword, keyword_name
+from pdfminer.psparser import PSKeyword, keyword_name, PSLiteral
 from pdfminer.utils import MATRIX_IDENTITY
 from pdfminer.pdfcolor import PREDEFINED_COLORSPACE
 from pdfminer.psexceptions import PSEOF
@@ -552,9 +552,10 @@ class TranslateConverter(PDFConverterEx):
         
         for l in lstk:
             if l.linewidth < 5:
-                ops_list.append(f"ET q 1 0 0 1 {l.pts[0][0]:f} {l.pts[0][1]:f} cm [] 0 d 0 J {l.linewidth:f} w 0 0 m {l.pts[1][0] - l.pts[0][0]:f} {l.pts[1][1] - l.pts[0][1]:f} l S Q BT ")
-        
-        ops = f"BT {''.join(ops_list)}ET "
+                ops_list.append(f"ET q 1 0 0 1 {l.pts[0][0]:f} {l.pts[0][1]:f} cm [] 0 d 0 J {l.linewidth:f} w 0 0 m {l.pts[1][0] - l.pts[0][0]:f} {l.pts[1][1] - l.pts[0][1]:f} l S Q BT 0 g ")
+
+        # Set text color to black (0 g for fill, 0 G for stroke) to ensure proper visibility
+        ops = f"BT 0 g 0 G {''.join(ops_list)}ET "
         log.info(f"Page {ltpage.pageid}: Generated {len(ops)} bytes of ops_new")
         if len(ops) < 100:
             log.warning(f"Page {ltpage.pageid}: ops_new is very short: {ops[:200]}")
@@ -685,12 +686,41 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
         self.init_state(ctm)
         return self.execute(list_value(streams))
 
+    def _format_arg(self, arg):
+        """Format a PDF argument for content stream"""
+        if isinstance(arg, (int, float)):
+            return f"{arg:f}"
+        elif isinstance(arg, PSLiteral):
+            # PSLiteral represents names like /X200, /Pattern, etc.
+            # name attribute is bytes, need to decode
+            name = arg.name.decode('latin-1') if isinstance(arg.name, bytes) else str(arg.name)
+            return f"/{name}"
+        else:
+            return str(arg)
+
     def execute(self, streams):
         ops = ""
         try:
             parser = PDFContentParser(streams)
         except PSEOF:
             return ops
+
+        # Path painting operators that we filter (these methods clear self.curpath)
+        filtered_painting_ops = {"S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n"}
+
+        # Path construction operators that should be tracked
+        path_construction_ops = {"m", "l", "c", "v", "y", "h", "re"}
+
+        # Graphics state and color space operators that reference external resources
+        # Filter these to avoid "cannot find resource" errors
+        filtered_resource_ops = {
+            "gs",      # Set graphics state (ExtGState) - used for transparency, blend modes
+            "cs", "CS",  # Set color space - may reference Pattern or other named color spaces
+            "SCN", "scn", "SC", "sc"  # Set color in current color space - may use Pattern
+        }
+
+        # Buffer path operations until we know if they will be painted or filtered
+        pending_ops = []
 
         while True:
             try:
@@ -708,19 +738,54 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
                     if nargs:
                         args = self.pop(nargs)
                         if len(args) == nargs:
-                            # âœ… Collect parameters for non-text operations
-                            params = " ".join([f"{a:f}" if isinstance(a, (int, float)) else str(a) for a in args])
+                            params = " ".join([self._format_arg(a) for a in args])
                             func(*args)
-                            # âœ… Collect drawing instructions (exclude text operators and some control ops)
-                            if not (name[0] == "T" or name in ['"', "'", "EI", "MP", "DP", "BMC", "BDC", "EMC"]):
+
+                            # Check if this is a filtered painting operator
+                            if name in filtered_painting_ops:
+                                # Discard pending path operations
+                                pending_ops = []
+                            elif name in filtered_resource_ops:
+                                # Filter resource reference operators to avoid missing resource errors
+                                pass
+                            elif name[0] == "T" or name in ['"', "'", "EI", "MP", "DP", "BMC", "BDC", "EMC"]:
+                                # Text and control operators - don't add to ops
+                                pass
+                            elif name in path_construction_ops:
+                                # Path construction - buffer it in case it needs to be filtered
+                                pending_ops.append(f"{params} {name} ")
+                            else:
+                                # Other operators (colors, transforms, images, etc.)
+                                # Flush pending ops first, then add this one
+                                ops += "".join(pending_ops)
+                                pending_ops = []
                                 ops += f"{params} {name} "
                     else:
                         func()
-                        # âœ… Collect operators without parameters
-                        if not (name[0] == "T" or name in ['"', "'", "EI", "MP", "DP", "BMC", "BDC", "EMC"]):
+
+                        # Check if this is a filtered painting operator
+                        if name in filtered_painting_ops:
+                            # Discard pending path operations
+                            pending_ops = []
+                        elif name in filtered_resource_ops:
+                            # Filter resource reference operators to avoid missing resource errors
+                            pass
+                        elif name[0] == "T" or name in ['"', "'", "EI", "MP", "DP", "BMC", "BDC", "EMC"]:
+                            # Text and control operators - don't add to ops
+                            pass
+                        elif name in path_construction_ops:
+                            # Path construction - buffer it
+                            pending_ops.append(f"{name} ")
+                        else:
+                            # Other operators
+                            ops += "".join(pending_ops)
+                            pending_ops = []
                             ops += f"{name} "
             else:
                 self.push(obj)
+
+        # Flush any remaining non-filtered ops
+        ops += "".join(pending_ops)
 
         return ops
 
@@ -943,7 +1008,11 @@ def translate_pdf(
         doc_en.subset_fonts(fallback=True)
         log.info("Font subsetting successful")
     except Exception as e:
-        log.warning(f"Font subsetting skipped: {e}")
+        if "fontTools" in str(e) or "fonttools" in str(e):
+            log.warning("Font subsetting skipped: fontTools not installed (optional dependency)")
+            log.info("To enable font subsetting, install: pip install fonttools")
+        else:
+            log.warning(f"Font subsetting skipped: {e}")
 
     # Save with compression and cleanup
     # Note: use_objstms requires specific PyMuPDF build, so we omit it for compatibility
