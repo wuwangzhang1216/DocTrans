@@ -59,9 +59,12 @@ class DOCXTranslator:
         if not runs:
             return runs
 
+        # Ensure API key is set in environment for this thread
         if api_key:
             os.environ['GEMINI_API_KEY'] = api_key
-        genai_client = genai.Client()
+
+        # Create client with explicit API key
+        genai_client = genai.Client(api_key=api_key if api_key else os.environ.get('GEMINI_API_KEY'))
 
         prompt = (
             f"You are a professional technical translator. Translate the following text runs into {target_language}.\n\n"
@@ -92,6 +95,7 @@ class DOCXTranslator:
                 result: TranslatedRuns = resp.parsed
 
                 if len(result.translations) == len(runs):
+                    print(f"[DEBUG] Translation successful: {len(runs)} runs translated")
                     return result.translations
                 else:
                     print(f"Warning: Translation count mismatch. Expected {len(runs)}, got {len(result.translations)}")
@@ -108,6 +112,7 @@ class DOCXTranslator:
                 else:
                     print(f"Translation failed after {max_retries} attempts: {str(e)}")
 
+        print(f"[DEBUG] Returning original runs after all attempts failed")
         return runs
 
     def _translate_single_paragraph(self, para_data: tuple) -> tuple:
@@ -309,15 +314,29 @@ class DOCXTranslator:
                                 'runs': [(i, t) for i, t in enumerate(task['runs'])]
                             }
 
+            # Debug: show keys in translated_results
+            print(f"[DEBUG] translated_results has {len(translated_results)} entries")
+            body_keys = [k for k in translated_results.keys() if isinstance(k, int)]
+            table_keys = [k for k in translated_results.keys() if isinstance(k, tuple)]
+            print(f"[DEBUG] Body paragraph keys: {body_keys[:5]}...")  # First 5
+            print(f"[DEBUG] Table paragraph keys: {table_keys[:5]}...")  # First 5
+
             # Apply body paragraph translations
+            body_applied = 0
             for para_idx, paragraph in enumerate(doc.paragraphs):
                 if para_idx in translated_results:
                     result = translated_results[para_idx]
                     for run_idx, run_text in result['runs']:
                         if run_idx < len(paragraph.runs):
+                            old_text = paragraph.runs[run_idx].text
                             paragraph.runs[run_idx].text = run_text
+                            body_applied += 1
+                            if para_idx < 3:  # Debug first 3 paragraphs
+                                print(f"[DEBUG] Applied body para {para_idx}, run {run_idx}: '{old_text}' -> '{run_text}'")
+            print(f"[DEBUG] Applied {body_applied} body paragraph runs")
 
             # Apply table translations
+            table_applied = 0
             for table_idx, table in enumerate(doc.tables):
                 for row_idx, row in enumerate(table.rows):
                     for cell_idx, cell in enumerate(row.cells):
@@ -328,6 +347,8 @@ class DOCXTranslator:
                                 for run_idx, run_text in result['runs']:
                                     if run_idx < len(paragraph.runs):
                                         paragraph.runs[run_idx].text = run_text
+                                        table_applied += 1
+            print(f"[DEBUG] Applied {table_applied} table paragraph runs")
 
             # Save translated document
             doc.save(output_path)

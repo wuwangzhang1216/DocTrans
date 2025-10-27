@@ -55,7 +55,8 @@ class DocumentTranslator:
         return self.translation_client.translate_text(text, target_language, source_language)
 
     def translate_document(self, input_path: str, output_path: Optional[str] = None,
-                          target_language: str = "Spanish", method: str = "auto") -> bool:
+                          target_language: str = "Spanish", method: str = "auto",
+                          progress_callback=None) -> bool:
         """
         Main method to translate any supported document format.
 
@@ -64,6 +65,7 @@ class DocumentTranslator:
             output_path: Path to save translated document (optional)
             target_language: Target language for translation
             method: PDF translation method - "overlay", "redaction", or "auto"
+            progress_callback: Optional callback function for progress updates (0.0 to 1.0)
 
         Returns:
             Success status
@@ -81,13 +83,25 @@ class DocumentTranslator:
         if file_ext == '.pptx':
             return self.pptx_translator.translate(input_path, output_path, target_language)
         elif file_ext == '.pdf':
+            # Report initial progress
+            if progress_callback:
+                progress_callback(0.05)  # 5% - Started
+
             # Choose PDF translation method
+            # PDF translator returns (mono_path, dual_path) on success or False on failure
             if method == "overlay":
-                return self.pdf_translator.translate_with_overlay(input_path, output_path, target_language)
+                result = self.pdf_translator.translate_with_overlay(input_path, output_path, target_language)
             elif method == "redaction":
-                return self.pdf_translator.translate_with_redaction(input_path, output_path, target_language)
+                result = self.pdf_translator.translate_with_redaction(input_path, output_path, target_language)
             else:  # auto
-                return self.pdf_translator.translate_hybrid(input_path, output_path, target_language)
+                result = self.pdf_translator.translate_hybrid(input_path, output_path, target_language)
+
+            # Report completion
+            if progress_callback and result:
+                progress_callback(1.0)  # 100% - Complete
+
+            # Return the actual tuple for PDFs (mono_path, dual_path) or False on failure
+            return result
         elif file_ext == '.docx':
             return self.docx_translator.translate(input_path, output_path, target_language)
         elif file_ext in ['.txt', '.text']:

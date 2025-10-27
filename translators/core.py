@@ -39,12 +39,17 @@ class TranslationClient:
             max_workers: Maximum total number of parallel workers
         """
         # Store API key for use in translators
-        self.api_key = api_key
+        self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
 
-        # Set environment variable and initialize client
-        if api_key:
-            os.environ['GEMINI_API_KEY'] = api_key
-        self.client = genai.Client()
+        # Verify API key is available
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY must be provided either as parameter or environment variable")
+
+        # Set environment variable for compatibility
+        os.environ['GEMINI_API_KEY'] = self.api_key
+
+        # Initialize client with API key
+        self.client = genai.Client(api_key=self.api_key)
         self.model = model
         self.max_workers = max_workers
         self.max_concurrent_pages = 16

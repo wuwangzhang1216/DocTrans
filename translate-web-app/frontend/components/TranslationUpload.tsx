@@ -10,10 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import io from 'socket.io-client';
 import { addToHistory } from '@/components/TranslationHistory';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const WS_URL = API_URL.replace('http', 'ws');
 
 interface TranslationJob {
   jobId: string;
@@ -32,101 +32,102 @@ export default function TranslationUpload() {
   const [targetLanguage, setTargetLanguage] = useState('Chinese');
   const [job, setJob] = useState<TranslationJob | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [socket, setSocket] = useState<any>(null);
+  const [ws, setWs] = useState<WebSocket | null>(null);
 
-  // Initialize WebSocket connection
+  // WebSocket connection for job updates
   useEffect(() => {
-    const newSocket = io(API_URL, {
-      transports: ['websocket', 'polling']
-    });
+    if (!job?.jobId) return;
 
-    newSocket.on('connect', () => {
-      // Connected to server
-    });
+    let websocket: WebSocket | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
 
-    newSocket.on('job-update', (update: any) => {
-      setJob(current => {
-        if (!current || current.jobId !== update.jobId) return current;
-        const updatedJob = {
-          ...current,
-          ...update
-        } as TranslationJob;
+    // Try to connect via WebSocket for real-time updates
+    try {
+      websocket = new WebSocket(`${WS_URL}/ws/${job.jobId}`);
 
-        // Add to history when completed
-        if (updatedJob.status === 'completed' && updatedJob.outputFile) {
-          addToHistory({
-            jobId: updatedJob.jobId,
-            fileName: file?.name || 'Unknown',
-            targetLanguage,
-            completedAt: Date.now(),
-            outputFile: updatedJob.outputFile
+      websocket.onopen = () => {
+        console.log('WebSocket connected');
+      };
+
+      websocket.onmessage = (event) => {
+        try {
+          const update = JSON.parse(event.data);
+
+          setJob(current => {
+            if (!current || current.jobId !== update.jobId) return current;
+            const updatedJob = {
+              ...current,
+              ...update
+            } as TranslationJob;
+
+            return updatedJob;
           });
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
         }
+      };
 
-        return updatedJob;
-      });
-    });
+      websocket.onerror = (error) => {
+        console.error('WebSocket error, falling back to polling');
+      };
 
-    setSocket(newSocket);
+      websocket.onclose = () => {
+        console.log('WebSocket disconnected');
+      };
+
+      setWs(websocket);
+    } catch (error) {
+      console.error('Failed to create WebSocket, using polling only');
+    }
+
+    // Fallback polling mechanism
+    pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/job/${job.jobId}`);
+        if (response.ok) {
+          const data = await response.json();
+
+          setJob(current => {
+            const updatedJob = {
+              ...current,
+              jobId: job.jobId,
+              status: data.status,
+              progress: data.progress || 0,
+              message: data.message || '',
+              outputFile: data.outputFile,
+              error: data.error
+            };
+            return updatedJob;
+          });
+
+          // Stop polling if job is completed or failed
+          if (data.status === 'completed' || data.status === 'failed') {
+            if (pollInterval) clearInterval(pollInterval);
+          }
+        }
+      } catch (error) {
+        console.error('Error polling job status:', error);
+      }
+    }, 2000); // Poll every 2 seconds
 
     return () => {
-      newSocket.disconnect();
+      if (websocket) websocket.close();
+      if (pollInterval) clearInterval(pollInterval);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [job?.jobId]);
 
-  // Subscribe to job updates and poll for status
+  // Handle history update when job completes (separate effect to avoid render-phase updates)
   useEffect(() => {
-    if (socket && job?.jobId) {
-      socket.emit('subscribe-job', job.jobId);
-
-      // Also poll for job status every 2 seconds
-      const pollInterval = setInterval(async () => {
-        try {
-          const response = await fetch(`${API_URL}/api/job/${job.jobId}`);
-          if (response.ok) {
-            const data = await response.json();
-
-            // Update job state with polled data
-            setJob(current => {
-              const updatedJob = {
-                ...current,
-                jobId: job.jobId,
-                status: data.status,
-                progress: data.progress || 0,
-                message: data.message || '',
-                outputFile: data.outputFile,
-                error: data.error
-              };
-              return updatedJob;
-            });
-
-            // Add to history when completed
-            if (data.status === 'completed' && data.outputFile) {
-              addToHistory({
-                jobId: job.jobId,
-                fileName: file?.name || 'Unknown',
-                targetLanguage,
-                completedAt: Date.now(),
-                outputFile: data.outputFile
-              });
-            }
-
-            // Stop polling if job is completed or failed
-            if (data.status === 'completed' || data.status === 'failed') {
-              clearInterval(pollInterval);
-            }
-          }
-        } catch (error) {
-          console.error('Error polling job status:', error);
-        }
-      }, 2000); // Poll every 2 seconds
-
-      return () => {
-        socket.emit('unsubscribe-job', job.jobId);
-        clearInterval(pollInterval);
-      };
+    if (job?.status === 'completed' && job.outputFile && file) {
+      addToHistory({
+        jobId: job.jobId,
+        fileName: file.name,
+        targetLanguage,
+        completedAt: Date.now(),
+        outputFile: job.outputFile
+      });
     }
-  }, [socket, job?.jobId, file, targetLanguage]);
+  }, [job?.status, job?.outputFile, job?.jobId, file, targetLanguage]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
