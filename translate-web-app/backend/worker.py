@@ -88,10 +88,10 @@ def process_translation(s3_key: str, filename: str, target_language: str):
             job.meta['message'] = f"Translating... {percent}%"
             job.save_meta()
 
-        # Perform translation
+        # Perform translation - ensure all paths are strings
         result = translator.translate_document(
-            input_path=input_path,
-            output_path=str(output_path),
+            input_path=str(input_path.resolve()),  # Absolute path as string
+            output_path=str(output_path.resolve()),  # Absolute path as string
             target_language=target_language,
             progress_callback=progress_callback
         )
