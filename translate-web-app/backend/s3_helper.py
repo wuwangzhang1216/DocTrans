@@ -9,6 +9,32 @@ from botocore.exceptions import ClientError
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+from urllib.parse import quote
+
+
+def encode_filename_for_disposition(filename: str) -> str:
+    """
+    Encode filename for Content-Disposition header to support non-ASCII characters.
+    Uses RFC 2231/5987 encoding: filename*=UTF-8''encoded_filename
+
+    Args:
+        filename: Original filename
+
+    Returns:
+        Properly encoded Content-Disposition header value
+    """
+    try:
+        # Try ASCII encoding first (most common case)
+        filename.encode('ascii')
+        # If successful, use simple format
+        return f'attachment; filename="{filename}"'
+    except UnicodeEncodeError:
+        # Contains non-ASCII characters, use RFC 2231 encoding
+        # URL encode the filename
+        encoded_filename = quote(filename, safe='')
+        # Use filename* parameter for UTF-8 encoded names
+        return f"attachment; filename*=UTF-8''{encoded_filename}"
+
 
 class S3Helper:
     def __init__(
@@ -63,13 +89,15 @@ class S3Helper:
 
             # Upload file (use S3 key filename for download, not local path name)
             download_filename = Path(s3_key).name
+            content_disposition = encode_filename_for_disposition(download_filename)
+
             self.s3_client.upload_file(
                 local_path,
                 self.bucket_name,
                 s3_key,
                 ExtraArgs={
                     'ContentType': content_type,
-                    'ContentDisposition': f'attachment; filename="{download_filename}"'
+                    'ContentDisposition': content_disposition
                 }
             )
 
@@ -104,12 +132,15 @@ class S3Helper:
             content_type = content_type_map.get(ext, 'application/octet-stream')
 
             # Upload content
+            download_filename = Path(s3_key).name
+            content_disposition = encode_filename_for_disposition(download_filename)
+
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=content,
                 ContentType=content_type,
-                ContentDisposition=f'attachment; filename="{Path(s3_key).name}"'
+                ContentDisposition=content_disposition
             )
 
             print(f"[SUCCESS] Uploaded content to s3://{self.bucket_name}/{s3_key}")
@@ -161,12 +192,14 @@ class S3Helper:
         try:
             # Include Content-Disposition in presigned URL to ensure correct download filename
             download_filename = Path(s3_key).name
+            content_disposition = encode_filename_for_disposition(download_filename)
+
             url = self.s3_client.generate_presigned_url(
                 'get_object',
                 Params={
                     'Bucket': self.bucket_name,
                     'Key': s3_key,
-                    'ResponseContentDisposition': f'attachment; filename="{download_filename}"'
+                    'ResponseContentDisposition': content_disposition
                 },
                 ExpiresIn=expiration
             )
