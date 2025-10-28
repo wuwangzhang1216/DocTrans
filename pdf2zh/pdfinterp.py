@@ -60,6 +60,9 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
         self.rsrcmgr = rsrcmgr
         self.device = device
         self.obj_patch = obj_patch
+        # Initialize color space attributes to prevent AttributeError on subsequent runs
+        self.scs: Optional[PDFColorSpace] = None
+        self.ncs: Optional[PDFColorSpace] = None
 
     def dup(self) -> "PDFPageInterpreterEx":
         return self.__class__(self.rsrcmgr, self.device, self.obj_patch)
