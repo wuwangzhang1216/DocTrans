@@ -45,9 +45,14 @@ from s3_helper import get_s3_helper
 app = FastAPI(title="DocTrans API", version="2.0")
 
 # CORS configuration
+ALLOWED_ORIGINS = os.environ.get(
+    'ALLOWED_ORIGINS',
+    'http://localhost:3000,http://127.0.0.1:3000,https://www.doctranslab.com,https://doctranslab.com,https://doctrans-frontend-wz-eeda0a3df81a.herokuapp.com'
+).split(',')
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,10 +68,13 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable is required")
 
+# Configure max workers based on environment (lower for Heroku's memory constraints)
+MAX_WORKERS = int(os.environ.get('MAX_WORKERS', '4'))  # Default 4 for Heroku
+
 translator = DocumentTranslator(
     api_key=GEMINI_API_KEY,
     model="gemini-2.0-flash-lite",
-    max_workers=256
+    max_workers=MAX_WORKERS
 )
 
 # Initialize S3 helper
