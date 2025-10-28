@@ -1,0 +1,49 @@
+# Core Google Generative AI (Gemini API)
+google-genai>=0.2.0
+pydantic>=2.0.0
+
+# FastAPI Backend
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Document processing libraries
+python-pptx>=0.6.21
+python-docx>=1.0.0
+pymupdf>=1.23.0
+pdfplumber>=0.10.0
+reportlab>=4.0.0
+
+# PDF2ZH Core Dependencies
+pdfminer.six>=20221105
+numpy>=1.24.0
+onnx>=1.14.0
+onnxruntime>=1.15.0
+opencv-python>=4.8.0
+tqdm>=4.65.0
+requests>=2.31.0
+tenacity>=8.2.0
+peewee>=3.17.0
+babeldoc>=0.5.0
+
+# Additional translators support
+deepl>=1.15.0
+ollama>=0.1.0
+openai>=1.0.0
+xinference-client>=0.9.0
+azure-ai-translation-text>=1.0.0
+azure-core>=1.28.0
+tencentcloud-sdk-python-tmt>=3.0.0
+
+# Optional dependencies
+chardet>=5.0.0
+Pillow>=10.0.0
+fonttools>=4.40.0
+huggingface_hub>=0.17.0
+
+# Utility
+python-dotenv>=1.0.0
+rich>=13.7.0
+
+# AWS S3 Integration
+boto3>=1.28.0
