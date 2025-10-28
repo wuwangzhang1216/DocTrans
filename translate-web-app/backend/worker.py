@@ -76,8 +76,8 @@ def process_translation(s3_key: str, filename: str, target_language: str):
         if not download_success:
             raise Exception(f"Failed to download file from S3: {s3_key}")
 
-        # Determine output path
-        output_filename = f"{input_path.stem}_translated_{target_language}{input_path.suffix}"
+        # Determine output path (format: originalname-targetlanguage.ext)
+        output_filename = f"{input_path.stem}-{target_language}{input_path.suffix}"
         output_path = Path(temp_dir) / output_filename
 
         # Progress callback
@@ -103,9 +103,10 @@ def process_translation(s3_key: str, filename: str, target_language: str):
                 # PDF translation - use the mono path
                 mono_path, dual_path = result
                 actual_output_path = Path(mono_path)
-                actual_output_filename = actual_output_path.name
+                # Generate custom filename: originalname-targetlanguage.ext
+                actual_output_filename = f"{input_path.stem}-{target_language}{input_path.suffix}"
 
-                # Upload to S3
+                # Upload to S3 with custom filename
                 output_s3_key = f"outputs/{actual_output_filename}"
                 upload_success = s3_helper.upload_file(str(actual_output_path), output_s3_key)
 
