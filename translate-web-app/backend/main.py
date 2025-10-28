@@ -130,22 +130,42 @@ async def translate_document(
     if file_ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"File type {file_ext} not supported")
 
-    # Save uploaded file
+    # Read file content
+    content = await file.read()
+
+    # Upload to S3 first (required for Heroku multi-dyno architecture)
     unique_filename = f"{uuid.uuid4()}_{file.filename}"
-    input_path = UPLOAD_DIR / unique_filename
 
-    with open(input_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    if s3_helper:
+        # Upload to S3
+        s3_key = f"uploads/{unique_filename}"
+        upload_success = s3_helper.upload_file_content(content, s3_key)
 
-    # Enqueue job to Redis queue
-    job = translation_queue.enqueue(
-        'worker.process_translation',
-        args=(str(input_path), file.filename, targetLanguage, str(OUTPUT_DIR)),
-        job_timeout='10m',
-        result_ttl=3600,  # Keep result for 1 hour
-        failure_ttl=3600
-    )
+        if not upload_success:
+            raise HTTPException(status_code=500, detail="Failed to upload file to storage")
+
+        # Enqueue job with S3 key
+        job = translation_queue.enqueue(
+            'worker.process_translation',
+            args=(s3_key, file.filename, targetLanguage),
+            job_timeout='10m',
+            result_ttl=3600,  # Keep result for 1 hour
+            failure_ttl=3600
+        )
+    else:
+        # Fallback: save locally (only works for single dyno)
+        input_path = UPLOAD_DIR / unique_filename
+        with open(input_path, "wb") as f:
+            f.write(content)
+
+        # Enqueue job with local path
+        job = translation_queue.enqueue(
+            'worker.process_translation_local',
+            args=(str(input_path), file.filename, targetLanguage, str(OUTPUT_DIR)),
+            job_timeout='10m',
+            result_ttl=3600,
+            failure_ttl=3600
+        )
 
     return {
         "success": True,

@@ -44,31 +44,41 @@ translator = DocumentTranslator(
 s3_helper = get_s3_helper()
 
 
-def process_translation(input_path: str, filename: str, target_language: str, output_dir: str):
+def process_translation(s3_key: str, filename: str, target_language: str):
     """
-    Process translation job
+    Process translation job (S3-based for multi-dyno support)
 
     Args:
-        input_path: Path to input file
+        s3_key: S3 key of uploaded file
         filename: Original filename
         target_language: Target language for translation
-        output_dir: Directory for output files
 
     Returns:
-        str: Output filename on success
+        str: Output S3 key on success
     """
     job = get_current_job()
 
     try:
+        if not s3_helper:
+            raise Exception("S3 not configured - cannot process job")
+
         # Update job metadata
         job.meta['progress'] = 5
-        job.meta['message'] = 'Starting translation...'
+        job.meta['message'] = 'Downloading file from storage...'
         job.save_meta()
 
+        # Download from S3 to temp location
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        input_path = Path(temp_dir) / filename
+
+        download_success = s3_helper.download_file(s3_key, str(input_path))
+        if not download_success:
+            raise Exception(f"Failed to download file from S3: {s3_key}")
+
         # Determine output path
-        input_file = Path(input_path)
-        output_filename = f"{input_file.stem}_translated_{target_language}{input_file.suffix}"
-        output_path = Path(output_dir) / output_filename
+        output_filename = f"{input_path.stem}_translated_{target_language}{input_path.suffix}"
+        output_path = Path(temp_dir) / output_filename
 
         # Progress callback
         def progress_callback(progress: float):
@@ -95,16 +105,12 @@ def process_translation(input_path: str, filename: str, target_language: str, ou
                 actual_output_path = Path(mono_path)
                 actual_output_filename = actual_output_path.name
 
-                # Upload to S3 if configured
-                if s3_helper:
-                    s3_key = f"outputs/{actual_output_filename}"
-                    upload_success = s3_helper.upload_file(str(actual_output_path), s3_key)
-                    if upload_success:
-                        # Delete local file after successful upload
-                        try:
-                            os.remove(actual_output_path)
-                        except:
-                            pass
+                # Upload to S3
+                output_s3_key = f"outputs/{actual_output_filename}"
+                upload_success = s3_helper.upload_file(str(actual_output_path), output_s3_key)
+
+                if not upload_success:
+                    raise Exception("Failed to upload result to S3")
 
                 job.meta['progress'] = 100
                 job.meta['message'] = 'Translation completed successfully'
@@ -113,16 +119,11 @@ def process_translation(input_path: str, filename: str, target_language: str, ou
                 return actual_output_filename
             else:
                 # Non-PDF translation
-                # Upload to S3 if configured
-                if s3_helper:
-                    s3_key = f"outputs/{output_filename}"
-                    upload_success = s3_helper.upload_file(str(output_path), s3_key)
-                    if upload_success:
-                        # Delete local file after successful upload
-                        try:
-                            os.remove(output_path)
-                        except:
-                            pass
+                output_s3_key = f"outputs/{output_filename}"
+                upload_success = s3_helper.upload_file(str(output_path), output_s3_key)
+
+                if not upload_success:
+                    raise Exception("Failed to upload result to S3")
 
                 job.meta['progress'] = 100
                 job.meta['message'] = 'Translation completed successfully'
@@ -140,9 +141,18 @@ def process_translation(input_path: str, filename: str, target_language: str, ou
         job.save_meta()
         raise
     finally:
-        # Clean up input file
+        # Clean up temp files
         try:
-            os.remove(input_path)
+            import shutil
+            if 'temp_dir' in locals():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
+
+        # Clean up uploaded file from S3
+        try:
+            if 's3_key' in locals() and s3_helper:
+                s3_helper.delete_file(s3_key)
         except:
             pass
 

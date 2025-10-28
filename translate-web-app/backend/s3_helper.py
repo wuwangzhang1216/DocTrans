@@ -79,6 +79,73 @@ class S3Helper:
             print(f"[ERROR] Failed to upload {local_path}: {e}")
             return False
 
+    def upload_file_content(self, content: bytes, s3_key: str) -> bool:
+        """
+        Upload file content (bytes) to S3
+
+        Args:
+            content: File content as bytes
+            s3_key: S3 object key (path in bucket)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Determine content type based on file extension
+            ext = Path(s3_key).suffix.lower()
+            content_type_map = {
+                '.pdf': 'application/pdf',
+                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                '.txt': 'text/plain',
+                '.md': 'text/markdown'
+            }
+            content_type = content_type_map.get(ext, 'application/octet-stream')
+
+            # Upload content
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=content,
+                ContentType=content_type,
+                ContentDisposition=f'attachment; filename="{Path(s3_key).name}"'
+            )
+
+            print(f"[SUCCESS] Uploaded content to s3://{self.bucket_name}/{s3_key}")
+            return True
+
+        except ClientError as e:
+            print(f"[ERROR] Failed to upload content: {e}")
+            return False
+
+    def download_file(self, s3_key: str, local_path: str) -> bool:
+        """
+        Download a file from S3
+
+        Args:
+            s3_key: S3 object key
+            local_path: Local file path to save to
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure parent directory exists
+            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+
+            self.s3_client.download_file(
+                self.bucket_name,
+                s3_key,
+                local_path
+            )
+
+            print(f"[SUCCESS] Downloaded s3://{self.bucket_name}/{s3_key} to {local_path}")
+            return True
+
+        except ClientError as e:
+            print(f"[ERROR] Failed to download {s3_key}: {e}")
+            return False
+
     def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> Optional[str]:
         """
         Generate a presigned URL for downloading a file
