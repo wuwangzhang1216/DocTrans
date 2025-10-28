@@ -61,14 +61,15 @@ class S3Helper:
             }
             content_type = content_type_map.get(ext, 'application/octet-stream')
 
-            # Upload file
+            # Upload file (use S3 key filename for download, not local path name)
+            download_filename = Path(s3_key).name
             self.s3_client.upload_file(
                 local_path,
                 self.bucket_name,
                 s3_key,
                 ExtraArgs={
                     'ContentType': content_type,
-                    'ContentDisposition': f'attachment; filename="{Path(local_path).name}"'
+                    'ContentDisposition': f'attachment; filename="{download_filename}"'
                 }
             )
 
@@ -158,11 +159,14 @@ class S3Helper:
             Presigned URL or None if failed
         """
         try:
+            # Include Content-Disposition in presigned URL to ensure correct download filename
+            download_filename = Path(s3_key).name
             url = self.s3_client.generate_presigned_url(
                 'get_object',
                 Params={
                     'Bucket': self.bucket_name,
-                    'Key': s3_key
+                    'Key': s3_key,
+                    'ResponseContentDisposition': f'attachment; filename="{download_filename}"'
                 },
                 ExpiresIn=expiration
             )
