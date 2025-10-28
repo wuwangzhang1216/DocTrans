@@ -15,6 +15,9 @@ from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
+from redis import Redis
+from rq import Queue
+from rq.job import Job
 
 # Load environment variables FIRST
 from dotenv import load_dotenv
@@ -80,8 +83,18 @@ translator = DocumentTranslator(
 # Initialize S3 helper
 s3_helper = get_s3_helper()
 
-# Job storage (in-memory for now, can be replaced with Redis later)
-jobs = {}
+# Redis configuration
+REDIS_URL = os.environ.get('REDIS_URL')
+if not REDIS_URL:
+    raise ValueError("REDIS_URL environment variable is required")
+
+# Initialize Redis connection with SSL certificate verification disabled for self-signed certs
+redis_conn = Redis.from_url(
+    REDIS_URL,
+    decode_responses=False,
+    ssl_cert_reqs=None  # Disable SSL certificate verification
+)
+translation_queue = Queue('translation', connection=redis_conn)
 
 # WebSocket connections
 active_connections = {}
@@ -111,9 +124,6 @@ async def translate_document(
 
     print(f"[DEBUG] Received targetLanguage: {targetLanguage}")
 
-    # Generate unique job ID
-    job_id = str(uuid.uuid4())
-
     # Validate file type
     allowed_extensions = ['.pdf', '.docx', '.pptx', '.txt', '.md']
     file_ext = Path(file.filename).suffix.lower()
@@ -128,158 +138,51 @@ async def translate_document(
         content = await file.read()
         f.write(content)
 
-    # Initialize job status
-    jobs[job_id] = {
-        "status": "queued",
-        "progress": 0,
-        "message": "Translation queued",
-        "input_path": str(input_path),
-        "filename": file.filename,
-        "target_language": targetLanguage,
-        "created_at": datetime.now().isoformat()
-    }
-
-    # Start translation in background
-    asyncio.create_task(process_translation(job_id))
+    # Enqueue job to Redis queue
+    job = translation_queue.enqueue(
+        'worker.process_translation',
+        args=(str(input_path), file.filename, targetLanguage, str(OUTPUT_DIR)),
+        job_timeout='10m',
+        result_ttl=3600,  # Keep result for 1 hour
+        failure_ttl=3600
+    )
 
     return {
         "success": True,
-        "jobId": job_id,
+        "jobId": job.id,
         "message": "File uploaded and queued for translation"
     }
-
-async def process_translation(job_id: str):
-    """Process translation job in background"""
-
-    job = jobs[job_id]
-    input_path = job["input_path"]
-    target_language = job["target_language"]
-
-    try:
-        # Update status
-        job["status"] = "processing"
-        job["progress"] = 5
-        job["message"] = "Starting translation..."
-        await broadcast_job_update(job_id)
-
-        # Determine output path
-        input_file = Path(input_path)
-        output_filename = f"{input_file.stem}_translated_{target_language}{input_file.suffix}"
-        output_path = OUTPUT_DIR / output_filename
-
-        # Get event loop for thread-safe scheduling
-        loop = asyncio.get_event_loop()
-
-        # Progress callback (synchronous, updates job dict)
-        def progress_callback(progress: float):
-            """Update job progress"""
-            percent = int(progress * 100)
-            job["progress"] = percent
-            job["message"] = f"Translating... {percent}%"
-            # Schedule broadcast from executor thread safely
-            asyncio.run_coroutine_threadsafe(broadcast_job_update(job_id), loop)
-
-        # Perform translation (runs in executor to not block)
-        result = await loop.run_in_executor(
-            None,
-            lambda: translator.translate_document(
-                input_path=str(input_path),
-                output_path=str(output_path),
-                target_language=target_language,
-                progress_callback=progress_callback
-            )
-        )
-
-        if result:
-            # Success
-            # For PDFs, result is a tuple (mono_path, dual_path), for others it's True/False
-            if isinstance(result, tuple) and len(result) == 2:
-                # PDF translation - use the mono path
-                mono_path, dual_path = result
-                actual_output_path = Path(mono_path)
-                actual_output_filename = actual_output_path.name
-
-                # Upload to S3 if configured
-                s3_key = None
-                if s3_helper:
-                    s3_key = f"outputs/{actual_output_filename}"
-                    upload_success = await loop.run_in_executor(
-                        None,
-                        lambda: s3_helper.upload_file(str(actual_output_path), s3_key)
-                    )
-                    if upload_success:
-                        # Delete local file after successful upload
-                        try:
-                            os.remove(actual_output_path)
-                        except:
-                            pass
-
-                job["status"] = "completed"
-                job["progress"] = 100
-                job["message"] = "Translation completed successfully"
-                job["output_file"] = actual_output_filename
-                job["output_path"] = str(actual_output_path)
-                job["s3_key"] = s3_key
-                await broadcast_job_update(job_id)
-            else:
-                # Non-PDF translation
-                # Upload to S3 if configured
-                s3_key = None
-                if s3_helper:
-                    s3_key = f"outputs/{output_filename}"
-                    upload_success = await loop.run_in_executor(
-                        None,
-                        lambda: s3_helper.upload_file(str(output_path), s3_key)
-                    )
-                    if upload_success:
-                        # Delete local file after successful upload
-                        try:
-                            os.remove(output_path)
-                        except:
-                            pass
-
-                job["status"] = "completed"
-                job["progress"] = 100
-                job["message"] = "Translation completed successfully"
-                job["output_file"] = output_filename
-                job["output_path"] = str(output_path)
-                job["s3_key"] = s3_key
-                await broadcast_job_update(job_id)
-        else:
-            raise Exception("Translation failed")
-
-    except Exception as e:
-        # Failed
-        job["status"] = "failed"
-        job["progress"] = 0
-        job["message"] = "Translation failed"
-        job["error"] = str(e)
-        await broadcast_job_update(job_id)
-    finally:
-        # Clean up input file
-        try:
-            os.remove(input_path)
-        except:
-            pass
 
 async def broadcast_job_update(job_id: str):
     """Broadcast job update to connected WebSocket clients"""
     if job_id in active_connections:
-        job = jobs[job_id]
-        status = {
-            "jobId": job_id,
-            "status": job["status"],
-            "progress": job["progress"],
-            "message": job["message"],
-            "outputFile": job.get("output_file"),
-            "error": job.get("error")
-        }
+        try:
+            job = Job.fetch(job_id, connection=redis_conn)
 
-        for websocket in active_connections[job_id]:
-            try:
-                await websocket.send_json(status)
-            except:
-                pass
+            # Map RQ status to our status
+            status_map = {
+                'queued': 'queued',
+                'started': 'processing',
+                'finished': 'completed',
+                'failed': 'failed'
+            }
+
+            status = {
+                "jobId": job_id,
+                "status": status_map.get(job.get_status(), 'queued'),
+                "progress": job.meta.get('progress', 0),
+                "message": job.meta.get('message', 'Processing...'),
+                "outputFile": job.result if job.is_finished else None,
+                "error": str(job.exc_info) if job.is_failed else None
+            }
+
+            for websocket in active_connections[job_id]:
+                try:
+                    await websocket.send_json(status)
+                except:
+                    pass
+        except:
+            pass
 
 @app.websocket("/ws/{job_id}")
 async def websocket_endpoint(websocket: WebSocket, job_id: str):
@@ -293,20 +196,30 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 
     try:
         # Send current status immediately
-        if job_id in jobs:
-            job = jobs[job_id]
+        try:
+            job = Job.fetch(job_id, connection=redis_conn)
+            status_map = {
+                'queued': 'queued',
+                'started': 'processing',
+                'finished': 'completed',
+                'failed': 'failed'
+            }
+
             await websocket.send_json({
                 "jobId": job_id,
-                "status": job["status"],
-                "progress": job["progress"],
-                "message": job["message"],
-                "outputFile": job.get("output_file"),
-                "error": job.get("error")
+                "status": status_map.get(job.get_status(), 'queued'),
+                "progress": job.meta.get('progress', 0),
+                "message": job.meta.get('message', 'Processing...'),
+                "outputFile": job.result if job.is_finished else None,
+                "error": str(job.exc_info) if job.is_failed else None
             })
+        except:
+            pass
 
-        # Keep connection alive
+        # Keep connection alive and poll for updates
         while True:
-            await websocket.receive_text()
+            await asyncio.sleep(1)
+            await broadcast_job_update(job_id)
     except WebSocketDisconnect:
         active_connections[job_id].remove(websocket)
         if not active_connections[job_id]:
@@ -315,18 +228,27 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 @app.get("/api/job/{job_id}")
 async def get_job_status(job_id: str):
     """Get job status"""
-    if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
 
-    job = jobs[job_id]
-    return {
-        "jobId": job_id,
-        "status": job["status"],
-        "progress": job["progress"],
-        "message": job["message"],
-        "outputFile": job.get("output_file"),
-        "error": job.get("error")
-    }
+        # Map RQ status to our status
+        status_map = {
+            'queued': 'queued',
+            'started': 'processing',
+            'finished': 'completed',
+            'failed': 'failed'
+        }
+
+        return {
+            "jobId": job_id,
+            "status": status_map.get(job.get_status(), 'queued'),
+            "progress": job.meta.get('progress', 0),
+            "message": job.meta.get('message', 'Processing...'),
+            "outputFile": job.result if job.is_finished else None,
+            "error": str(job.exc_info) if job.is_failed else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Job not found")
 
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):

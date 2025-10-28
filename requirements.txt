@@ -47,3 +47,7 @@ rich>=13.7.0
 
 # AWS S3 Integration
 boto3>=1.28.0
+
+# Redis and Job Queue
+redis>=5.0.0
+rq>=1.15.0
