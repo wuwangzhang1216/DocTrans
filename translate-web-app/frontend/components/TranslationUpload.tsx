@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { addToHistory } from '@/components/TranslationHistory';
+import GoogleAdModal from '@/components/GoogleAdModal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const WS_URL = API_URL.replace('http', 'ws');
@@ -33,6 +34,7 @@ export default function TranslationUpload() {
   const [job, setJob] = useState<TranslationJob | null>(null);
   const [uploading, setUploading] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [showAdModal, setShowAdModal] = useState(false);
 
   // WebSocket connection for job updates
   useEffect(() => {
@@ -115,6 +117,13 @@ export default function TranslationUpload() {
       if (pollInterval) clearInterval(pollInterval);
     };
   }, [job?.jobId]);
+
+  // Show ad modal when job starts processing
+  useEffect(() => {
+    if (job?.status === 'processing' && !showAdModal) {
+      setShowAdModal(true);
+    }
+  }, [job?.status, showAdModal]);
 
   // Handle history update when job completes (separate effect to avoid render-phase updates)
   useEffect(() => {
@@ -243,7 +252,8 @@ export default function TranslationUpload() {
   };
 
   return (
-    <Card className="w-full max-w-3xl mx-auto bg-white/5 backdrop-blur-md border border-white/10 shadow-xl">
+    <>
+      <Card className="w-full max-w-3xl mx-auto bg-white/5 backdrop-blur-md border border-white/10 shadow-xl">
       <CardContent className="pt-8 space-y-6">
         {/* Language Selection */}
         <div className="space-y-3">
@@ -411,5 +421,16 @@ export default function TranslationUpload() {
         </CardFooter>
       )}
     </Card>
+
+      {/* Google AdSense 全屏弹窗广告 - 根据翻译进度显示 */}
+      <GoogleAdModal
+        show={showAdModal}
+        onClose={() => setShowAdModal(false)}
+        progress={job?.progress || 0}
+        status={job?.status || 'processing'}
+        showCloseButton={true}
+        adFormat="auto"
+      />
+    </>
   );
 }
