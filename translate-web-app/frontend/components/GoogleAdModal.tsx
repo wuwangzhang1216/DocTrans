@@ -135,7 +135,7 @@ export default function GoogleAdModal({
               <button
                 onClick={handleClose}
                 disabled={status === 'processing' || status === 'queued'}
-                className={`absolute right-6 top-6 rounded-xl p-3 backdrop-blur-sm transition-all duration-300 border-2 ${
+                className={`absolute right-6 top-6 z-10 rounded-xl p-3 backdrop-blur-sm transition-all duration-300 border-2 ${
                   status === 'processing' || status === 'queued'
                     ? 'bg-gray-600/30 text-gray-500 border-gray-600/50 cursor-not-allowed opacity-50'
                     : 'bg-green-500/80 text-white hover:bg-green-400 border-green-400 shadow-lg shadow-green-500/50 cursor-pointer animate-pulse'
