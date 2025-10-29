@@ -20,6 +20,9 @@ export const metadata: Metadata = {
       },
     ],
   },
+  other: {
+    "google-adsense-account": "ca-pub-4336380077136775",
+  },
 }
 
 export default function RootLayout({
@@ -27,23 +30,18 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // 从环境变量获取 AdSense ID
-  const adSenseId = process.env.NEXT_PUBLIC_ADSENSE_ID
-
   return (
     <html lang="en">
       <body className={inter.className}>
         {children}
 
         {/* Google AdSense Script */}
-        {adSenseId && (
-          <Script
-            async
-            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adSenseId}`}
-            crossOrigin="anonymous"
-            strategy="afterInteractive"
-          />
-        )}
+        <Script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4336380077136775"
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   )
