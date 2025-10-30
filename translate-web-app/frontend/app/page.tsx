@@ -95,6 +95,18 @@ export default function Home() {
           <div className="space-y-4">
             <div className="flex justify-center space-x-6 text-sm">
               <Link
+                href="/about"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                About Us
+              </Link>
+              <Link
+                href="/contact"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Contact
+              </Link>
+              <Link
                 href="/privacy"
                 className="text-gray-400 hover:text-white transition-colors"
               >
